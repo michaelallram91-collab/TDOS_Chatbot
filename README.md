@@ -80,6 +80,16 @@ Jedes Quest unterstützt:
 | `imageRequirement` | was auf dem Foto zu sehen sein muss (z. B. „High five mit dem Direktor") |
 | `codeword` | optionales Codewort als Ersatz für das Foto |
 
+## TAN-Codes (zusätzliche Sicherheit)
+
+Damit die Lösungswörter nicht einfach unter den Schülern getauscht werden können, wird nach einer richtigen Antwort zusätzlich ein **TAN-Code** abgefragt.
+
+- Die TAN-Liste steht in **`tans.php`** (10 Einträge, Zeile 1–10).
+- Nach einer korrekten Antwort fordert der Bot den **TAN-Code einer bestimmten Zeile** (z. B. „Code aus Zeile 3").
+- Erst wenn der richtige TAN eingegeben wird, wird das Quest grün erfüllt.
+- Die Zeile wird pro Schüler+Quest deterministisch gewählt – die Betreuer am Tag der offenen Tür halten die ausgedruckte Liste bereit und nennen dem Schüler den passenden Code.
+- Codes jederzeit in `tans.php` änderbar.
+
 ## Druck
 
 - Am Ende (alle Quests erfüllt) fragt der Chatbot, ob die Bilder gedruckt werden sollen.

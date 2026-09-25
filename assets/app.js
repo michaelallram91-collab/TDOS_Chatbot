@@ -17,6 +17,7 @@ let history = loadJSON(STORAGE_KEY_HISTORY, []);
 let completedQuests = loadJSON(STORAGE_KEY_QUESTS, []);
 let pendingImage = null; // { file, dataUrl }
 let studentId = loadStudentId();
+let pendingTan = null; // { questId, title, row } – wartet auf TAN-Eingabe
 
 /* ---------- DOM ---------- */
 const $ = (sel) => document.querySelector(sel);
@@ -134,7 +135,7 @@ async function verifyAnswer(text, hasImage) {
     const resp = await fetch('api/verify.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, image: hasImage }),
+      body: JSON.stringify({ message: text, hasImage: hasImage, student_id: studentId }),
     });
     const data = await resp.json();
     if (!resp.ok) return null;
@@ -142,6 +143,23 @@ async function verifyAnswer(text, hasImage) {
   } catch (e) {
     console.error(e);
     return null;
+  }
+}
+
+/* ---------- TAN prüfen (serverseitig) ---------- */
+async function verifyTan(tan, questId, row) {
+  try {
+    const resp = await fetch('api/verify.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tan: tan, questId: questId, student_id: studentId, row: row }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return false;
+    return !!data.tanOk;
+  } catch (e) {
+    console.error(e);
+    return false;
   }
 }
 
@@ -262,16 +280,50 @@ async function sendMessage() {
   const typing = addTypingIndicator();
   sendBtn.disabled = true;
 
+  // Fall 1: Es wird auf eine TAN-Eingabe gewartet (nach richtiger Antwort)
+  if (pendingTan) {
+    const ok = await verifyTan(text, pendingTan.questId, pendingTan.row);
+    typing.remove();
+
+    if (ok) {
+      markQuestDone(pendingTan.questId);
+      history.push({
+        role: 'assistant',
+        content: `TAN-Code korrekt! ✅ Quest ${pendingTan.questId} ist erfüllt. Weiter so!`,
+      });
+    } else {
+      history.push({
+        role: 'assistant',
+        content: `Das war leider der falsche TAN-Code. Frag einen Buddy oder Betreuer nach dem Code aus Zeile ${pendingTan.row} und versuche es erneut.`,
+      });
+    }
+    pendingTan = null;
+    saveJSON(STORAGE_KEY_HISTORY, history);
+    renderAll();
+    sendBtn.disabled = false;
+    return;
+  }
+
   let aiReply = null;
 
   if (hasImage) {
-    // Bild uploaden + KI
-    aiReply = await uploadAndChat(text, imageFile);
+    // Bild uploaden + KI-Auswertung (Vision)
+    const uploadResult = await uploadAndChat(text, imageFile);
+    aiReply = uploadResult.content;
 
-    // Foto-Aufgabe: erste offene imageBased-Quest automatisch erfüllen
-    const imgQuest = QUESTS.find((q) => q.imageBased && !isQuestDone(q.id));
-    if (imgQuest) {
-      markQuestDone(imgQuest.id);
+    // Foto-Aufgabe nur erfüllen, wenn die KI das gesuchte Ziel erkannt hat
+    if (uploadResult.accepted) {
+      const imgQuest = QUESTS.find((q) => q.imageBased && !isQuestDone(q.id));
+      if (imgQuest) {
+        markQuestDone(imgQuest.id);
+      }
+    }
+
+    // Fehlerfall: konkrete Meldung anzeigen
+    if (uploadResult.error) {
+      aiReply = '⚠️ ' + uploadResult.error;
+    } else if (!aiReply) {
+      aiReply = 'Dein Bild wurde hochgeladen, aber ich konnte es nicht auswerten. Bitte versuche es erneut oder nenne das Codewort.';
     }
   } else {
     aiReply = await callChat(text);
@@ -281,7 +333,11 @@ async function sendMessage() {
 
   // Serverseitige Quest-Erkennung (Antworten bleiben geheim)
   const verified = await verifyAnswer(text, hasImage);
-  if (verified && verified.questId) {
+
+  if (verified && verified.requireTan) {
+    // Richtige Antwort, aber TAN wird verlangt → Quest noch NICHT erfüllen
+    pendingTan = { questId: verified.questId, title: verified.title, row: verified.row };
+  } else if (verified && verified.questId) {
     markQuestDone(verified.questId);
   }
 
@@ -293,6 +349,15 @@ async function sendMessage() {
       content: 'Entschuldigung, ich konnte gerade keine Antwort erhalten. Bitte versuche es erneut.',
     });
   }
+
+  // Wenn eine TAN-Abfrage nötig ist, zusätzliche Nachricht anhängen
+  if (verified && verified.requireTan && !pendingImage) {
+    history.push({
+      role: 'assistant',
+      content: `Richtige Antwort! 🔒 Zur Sicherheit brauche ich noch einen TAN-Code: Bitte nenne mir den Code aus Zeile ${verified.row} der TAN-Liste.`,
+    });
+  }
+
   saveJSON(STORAGE_KEY_HISTORY, history);
 
   renderAll();
@@ -324,7 +389,9 @@ async function uploadAndChat(text, imageFile) {
   try {
     const resp = await fetch('api/upload.php', { method: 'POST', body: fd });
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || 'Upload-Fehler');
+    if (!resp.ok) {
+      return { content: null, accepted: false, error: data.error || 'Upload-Fehler' };
+    }
 
     // URLs ersetzen: bereits gespeicherte URL verwenden
     const last = history[history.length - 1];
@@ -332,17 +399,14 @@ async function uploadAndChat(text, imageFile) {
       last.images = [data.url];
     }
 
-    // Falls die KI eine Textantwort liefert (nur bei Vision-Providern), diese verwenden
-    if (data.ai) {
-      return data.ai;
-    }
-
-    // Sonst (z. B. DeepSeek ohne Vision): freundliche Bestätigung zurückgeben.
-    // Die Foto-Aufgabe wurde bereits über den Bild-Upload erfüllt.
-    return 'Super, dein Bild wurde erfolgreich hochgeladen und gespeichert! 📸👍';
+    return {
+      content: data.ai || null,
+      accepted: !!data.accepted,
+      error: null,
+    };
   } catch (e) {
     console.error(e);
-    return null;
+    return { content: null, accepted: false, error: 'Netzwerk- oder Serverfehler.' };
   }
 }
 
@@ -474,6 +538,7 @@ document.addEventListener('keydown', (e) => {
 $('#btnClearHistory').addEventListener('click', () => {
   if (confirm('Möchtest du den Chatverlauf wirklich zurücksetzen?')) {
     history = [];
+    pendingTan = null;
     saveJSON(STORAGE_KEY_HISTORY, history);
     ensureWelcome();
     renderAll();

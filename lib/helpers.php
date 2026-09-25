@@ -61,6 +61,46 @@ function loadQuests(): array
 }
 
 /**
+ * Lädt die TAN-Liste (Zeile => Code).
+ */
+function loadTans(): array
+{
+    static $tans = null;
+    if ($tans === null) {
+        $tans = require __DIR__ . '/../tans.php';
+        if (!is_array($tans)) {
+            $tans = [];
+        }
+    }
+    return $tans;
+}
+
+/**
+ * Ermittelt deterministisch eine TAN-Zeile für (studentId + questId),
+ * damit der Schüler nach dem TAN einer bestimmten Zeile gefragt werden kann.
+ */
+function tanRowFor(string $studentId, int $questId): int
+{
+    $tans = loadTans();
+    $count = count($tans);
+    if ($count === 0) {
+        return 1;
+    }
+    // Deterministische, aber scheinbar zufällige Zeile
+    $seed = abs(crc32($studentId . ':' . $questId)) % $count;
+    $keys = array_keys($tans);
+    return (int)$keys[$seed];
+}
+
+function normalizeText(string $s): string
+{
+    $s = mb_strtolower($s, 'UTF-8');
+    $s = str_replace(['ä', 'ö', 'ü', 'ß'], ['a', 'o', 'u', 'ss'], $s);
+    $s = preg_replace('/\s+/u', ' ', $s);
+    return trim($s);
+}
+
+/**
  * Manifest-Datei für die Schüler->Bilder-Zuordnung.
  */
 function imageManifestPath(): string

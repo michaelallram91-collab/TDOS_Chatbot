@@ -1,17 +1,45 @@
 <?php
 /**
  * API - Prüft eine Antwort gegen die Quests (serverseitig).
- * POST { message, image?: bool }
- * Gibt zurück: { matched: true, questId, title } oder { matched: false }
  *
- * Lösungswörter bleiben so nicht im Browser sichtbar.
+ * Zwei-Stufen-Ablauf:
+ *  1) POST { message, student_id, hasImage }
+ *     → wenn eine richtige Lösung erkannt wird:
+ *       { matched: true, requireTan: true, questId, row }
+ *     → sonst { matched: false }
+ *
+ *  2) POST { tan, questId, student_id, row }
+ *     → prüft den TAN-Code der in Schritt 1 genannten Zeile
+ *       { tanOk: true } oder { tanOk: false }
+ *
+ * Lösungswörter und TANs bleiben so nicht im Browser sichtbar.
  */
 
 require __DIR__ . '/../lib/helpers.php';
 
 $data = readJsonBody();
+
+/* ---------- Schritt 2: TAN prüfen ---------- */
+if (isset($data['tan']) && isset($data['questId'])) {
+    $tan = normalizeText((string)$data['tan']);
+    $questId = (int)$data['questId'];
+    $studentId = (string)($data['student_id'] ?? '');
+
+    $row = isset($data['row']) ? (int)$data['row'] : tanRowFor($studentId, $questId);
+    $tans = loadTans();
+
+    $expected = isset($tans[$row]) ? normalizeText((string)$tans[$row]) : '';
+
+    if ($expected !== '' && $tan === $expected) {
+        jsonResponse(['tanOk' => true]);
+    }
+    jsonResponse(['tanOk' => false]);
+}
+
+/* ---------- Schritt 1: Antwort prüfen ---------- */
 $message = trim((string)($data['message'] ?? ''));
-$hasImage = !empty($data['image']);
+$hasImage = !empty($data['hasImage']);
+$studentId = (string)($data['student_id'] ?? '');
 
 $quests = loadQuests();
 $messageNorm = normalizeText($message);
@@ -19,16 +47,14 @@ $messageNorm = normalizeText($message);
 $matched = null;
 
 foreach ($quests as $q) {
-    // Nicht-textuelle Foto-Aufgaben: Bild-Upload markiert hier nicht automatisch;
-    // die inhaltliche Prüfung übernimmt die KI. Codewort wird wie Text geprüft.
+    // Foto-Aufgaben: Codewort wird wie Text geprüft (Bildinhalt übernimmt die KI)
     if (!empty($q['imageBased'])) {
-        // Prüfe Codewort als Text
         $codeword = $q['codeword'] ?? null;
         if ($codeword !== null && $codeword !== '' && strpos($messageNorm, normalizeText($codeword)) !== false) {
             $matched = $q;
             break;
         }
-        continue; // Bild-Inhalt wird von der KI im chat.php/upload.php bestätigt
+        continue;
     }
 
     $answers = $q['answers'] ?? [];
@@ -45,19 +71,14 @@ foreach ($quests as $q) {
 }
 
 if ($matched) {
+    $row = tanRowFor($studentId, (int)$matched['id']);
     jsonResponse([
-        'matched' => true,
-        'questId' => $matched['id'],
-        'title'   => $matched['title'] ?? '',
+        'matched'    => true,
+        'requireTan' => true,
+        'questId'    => (int)$matched['id'],
+        'title'      => $matched['title'] ?? '',
+        'row'        => $row,
     ]);
 }
 
 jsonResponse(['matched' => false]);
-
-function normalizeText(string $s): string
-{
-    $s = mb_strtolower($s, 'UTF-8');
-    $s = str_replace(['ä', 'ö', 'ü', 'ß'], ['a', 'o', 'u', 'ss'], $s);
-    $s = preg_replace('/\s+/u', ' ', $s);
-    return trim($s);
-}
