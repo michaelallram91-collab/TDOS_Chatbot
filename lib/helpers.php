@@ -76,8 +76,24 @@ function loadTans(): array
 }
 
 /**
- * Ermittelt deterministisch eine TAN-Zeile für (studentId + questId),
- * damit der Schüler nach dem TAN einer bestimmten Zeile gefragt werden kann.
+ * Wählt ZUFÄLLIG eine TAN-Zeile aus (bei jeder Anfrage neu).
+ * So bekommt jeder Schüler – auch bei gleicher Antwort/Quest – eine
+ * andere Zeile abgefragt.
+ */
+function randomTanRow(): int
+{
+    $tans = loadTans();
+    $keys = array_keys($tans);
+    if (count($keys) === 0) {
+        return 1;
+    }
+    $idx = random_int(0, count($keys) - 1);
+    return (int)$keys[$idx];
+}
+
+/**
+ * Ermittelt deterministisch eine TAN-Zeile für (studentId + questId).
+ * (Fallback, falls keine zufällige Auswahl gewünscht ist.)
  */
 function tanRowFor(string $studentId, int $questId): int
 {
@@ -86,7 +102,6 @@ function tanRowFor(string $studentId, int $questId): int
     if ($count === 0) {
         return 1;
     }
-    // Deterministische, aber scheinbar zufällige Zeile
     $seed = abs(crc32($studentId . ':' . $questId)) % $count;
     $keys = array_keys($tans);
     return (int)$keys[$seed];

@@ -125,6 +125,12 @@ function renderQuests() {
   });
   const total = QUESTS.length;
   const done = completedQuests.filter((id) => QUESTS.some((q) => q.id === id)).length;
+  if (total === 0) {
+    // Quests noch nicht geladen (z. B. Seite lädt gerade)
+    questBadge.textContent = '…';
+    progressText.textContent = 'Quests werden geladen …';
+    return;
+  }
   questBadge.textContent = `${done}/${total}`;
   progressText.textContent = `${done} von ${total} erledigt`;
 }
@@ -182,18 +188,107 @@ function escapeHtml(str) {
 }
 
 function urlifyAndImages(text) {
-  // Bilder per URL im Chat anzeigen (z.B. https://...png)
-  let escaped = escapeHtml(text);
-  escaped = escaped.replace(
+  return renderMarkdown(text);
+}
+
+/**
+ * Minimaler Markdown-Renderer (sicher, ohne externe Bibliothek).
+ * Unterstützt: **Fett**, *kursiv*, `code`, Zeilenumbrüche, Listen (- bzw. 1.),
+ * klickbare Links und eingebettete Bild-URLs.
+ */
+function renderMarkdown(text) {
+  let s = String(text || '');
+
+  // 1) Inline-Code zuerst schützen (Platzhalter), damit URLs darin nicht verändert werden
+  const codeBlocks = [];
+  s = s.replace(/`([^`]+)`/g, (m, code) => {
+    const idx = codeBlocks.push(code) - 1;
+    return "\u0000CODE" + idx + "\u0000";
+  });
+
+  // 2) Zeilen normalisieren
+  s = s.replace(/\r\n/g, '\n');
+
+  // 3) Zeilenweise verarbeiten (Listen, Absätze)
+  const lines = s.split('\n');
+  let html = '';
+  let inList = false;
+
+  const flushList = () => {
+    if (inList) {
+      html += '</ul>';
+      inList = false;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (line === '') {
+      flushList();
+      continue;
+    }
+
+    // Unsortierte Liste: "- " oder "• "
+    const ulMatch = line.match(/^[-*•]\s+(.*)$/);
+    if (ulMatch) {
+      if (!inList) {
+        html += '<ul class="md-list">';
+        inList = true;
+      }
+      html += '<li>' + inlineFormat(ulMatch[1]) + '</li>';
+      continue;
+    }
+
+    // Nummerierte Liste: "1. " usw.
+    const olMatch = line.match(/^\d+[.)]\s+(.*)$/);
+    if (olMatch) {
+      flushList();
+      // Pro Listenelement ein einzelnes <li>; einfache Annäherung ohne <ol>-Verschachtelung
+      html += '<div class="md-list-item">' + inlineFormat(olMatch[1]) + '</div>';
+      continue;
+    }
+
+    flushList();
+    html += '<p>' + inlineFormat(line) + '</p>';
+  }
+  flushList();
+
+  // 4) Inline-Code-Platzhalter zurückwandeln
+  html = html.replace(/\u0000CODE(\d+)\u0000/g, (m, i) => {
+    return '<code>' + escapeHtml(codeBlocks[parseInt(i, 10)]) + '</code>';
+  });
+
+  return html;
+}
+
+/**
+ * Inline-Formatierung: Fett, kursiv, Links, Bild-URLs.
+ * Arbeitet auf bereits HTML-eskaptem-safe Basis (Escape erst danach für Text).
+ */
+function inlineFormat(text) {
+  // Erst HTML-escapen, damit Markdown-Zeichen sicher ersetzt werden können
+  let t = escapeHtml(text);
+
+  // Bilder per URL (png/jpg/jpeg/gif/webp)
+  t = t.replace(
     /(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp))/gi,
     '<a class="img-link" href="$1" target="_blank" rel="noopener"><img class="msg-image" src="$1" alt="Bild"></a>'
   );
-  // Clickbare Links
-  escaped = escaped.replace(
+
+  // Fett **text**
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Kursiv *text*
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+
+  // Links (verbleibende http(s) URLs)
+  t = t.replace(
     /(https?:\/\/[^\s<>"']+)/gi,
     '<a href="$1" target="_blank" rel="noopener">$1</a>'
   );
-  return escaped;
+
+  return t;
 }
 
 function renderMessage(msg, { highlight = false } = {}) {
@@ -213,6 +308,9 @@ function renderMessage(msg, { highlight = false } = {}) {
 
   if (msg.printPrompt) {
     renderPrintActions();
+  }
+  if (msg.restartPrompt) {
+    renderRestartActions();
   }
   return el;
 }
@@ -273,6 +371,21 @@ async function sendMessage() {
   history.push(userMsg);
   saveJSON(STORAGE_KEY_HISTORY, history);
 
+  // Neustart/Verlauf-löschen erkennen → lokale Bestätigung statt KI-Aufruf
+  if (!hasImage && isRestartRequest(text)) {
+    chatInput.value = '';
+    clearPendingImage();
+    renderAll();
+    history.push({
+      role: 'assistant',
+      content: 'Möchtest du wirklich den gesamten Verlauf löschen und von vorne beginnen? Dann werden alle bisherigen Nachrichten und Fortschritte zurückgesetzt.',
+      restartPrompt: true,
+    });
+    saveJSON(STORAGE_KEY_HISTORY, history);
+    renderAll();
+    return;
+  }
+
   // UI aktualisieren
   chatInput.value = '';
   clearPendingImage();
@@ -281,23 +394,49 @@ async function sendMessage() {
   sendBtn.disabled = true;
 
   // Fall 1: Es wird auf eine TAN-Eingabe gewartet (nach richtiger Antwort)
-  if (pendingTan) {
-    const ok = await verifyTan(text, pendingTan.questId, pendingTan.row);
-    typing.remove();
+  if (pendingTan && !hasImage) {
+    // Nur wenn die Eingabe wie ein TAN aussieht (nur Ziffern), wird sie als
+    // TAN-Versuch gewertet. Bei einer Zwischenfrage antwortet die KI normal
+    // und pendingTan bleibt erhalten.
+    const isTanInput = looksLikeTan(text);
 
-    if (ok) {
-      markQuestDone(pendingTan.questId);
-      history.push({
-        role: 'assistant',
-        content: `TAN-Code korrekt! ✅ Quest ${pendingTan.questId} ist erfüllt. Weiter so!`,
-      });
-    } else {
-      history.push({
-        role: 'assistant',
-        content: `Das war leider der falsche TAN-Code. Frag einen Buddy oder Betreuer nach dem Code aus Zeile ${pendingTan.row} und versuche es erneut.`,
-      });
+    if (isTanInput) {
+      const ok = await verifyTan(text, pendingTan.questId, pendingTan.row);
+      typing.remove();
+
+      if (ok) {
+        const questId = pendingTan.questId;
+        markQuestDone(questId);
+        pendingTan = null;
+
+        // KI die Erfüllung mitteilen und zur nächsten Aufgabe übergehen lassen
+        const aiReply = await callChat(
+          `TAN-Code korrekt! Aufgabe ${questId} ist damit offiziell erfüllt. Bitte gratuliere kurz und führe zur nächsten Aufgabe über.`
+        );
+        history.push({
+          role: 'assistant',
+          content: aiReply || `TAN-Code korrekt! ✅ Aufgabe ${questId} ist erfüllt. Weiter so!`,
+        });
+      } else {
+        // TAN ungültig – pendingTan bleibt bestehen, damit es erneut versucht werden kann
+        history.push({
+          role: 'assistant',
+          content: `Das war leider der falsche TAN-Code. Frag einen Buddy oder Betreuer nach dem Code aus Zeile ${pendingTan.row} und versuche es erneut.`,
+        });
+      }
+      saveJSON(STORAGE_KEY_HISTORY, history);
+      renderAll();
+      sendBtn.disabled = false;
+      return;
     }
-    pendingTan = null;
+
+    // Keine TAN-Eingabe → normale Nachricht, KI antwortet, pendingTan bleibt bestehen.
+    const aiReply = await callChat(text);
+    typing.remove();
+    history.push({
+      role: 'assistant',
+      content: aiReply || 'Entschuldigung, ich konnte gerade keine Antwort erhalten. Bitte versuche es erneut.',
+    });
     saveJSON(STORAGE_KEY_HISTORY, history);
     renderAll();
     sendBtn.disabled = false;
@@ -305,6 +444,25 @@ async function sendMessage() {
   }
 
   let aiReply = null;
+
+  // Serverseitige Quest-Erkennung ZUERST, damit die Reihenfolge (TAN vor
+  // Fortsetzung) korrekt ist und die KI nicht vorzeitig gratuliert.
+  const verified = hasImage ? null : await verifyAnswer(text, hasImage);
+
+  if (verified && verified.requireTan) {
+    // Richtige Antwort → Quest MERKEN, aber noch nicht erfüllen.
+    // KEINE KI-Antwort anzeigen; stattdessen sofort nach dem TAN fragen.
+    pendingTan = { questId: verified.questId, title: verified.title, row: verified.row };
+    typing.remove();
+    history.push({
+      role: 'assistant',
+      content: `Sehr gut, das sieht richtig aus! 🔒 Bevor wir weitermachen, brauche ich zur Sicherheit noch einen TAN-Code: Bitte nenne mir den Code aus **Zeile ${verified.row}** der TAN-Liste.`,
+    });
+    saveJSON(STORAGE_KEY_HISTORY, history);
+    renderAll();
+    sendBtn.disabled = false;
+    return;
+  }
 
   if (hasImage) {
     // Bild uploaden + KI-Auswertung (Vision)
@@ -331,13 +489,8 @@ async function sendMessage() {
 
   typing.remove();
 
-  // Serverseitige Quest-Erkennung (Antworten bleiben geheim)
-  const verified = await verifyAnswer(text, hasImage);
-
-  if (verified && verified.requireTan) {
-    // Richtige Antwort, aber TAN wird verlangt → Quest noch NICHT erfüllen
-    pendingTan = { questId: verified.questId, title: verified.title, row: verified.row };
-  } else if (verified && verified.questId) {
+  // Antwort ohne TAN-Pflicht: ggf. Quest direkt erfüllen
+  if (verified && verified.questId) {
     markQuestDone(verified.questId);
   }
 
@@ -347,14 +500,6 @@ async function sendMessage() {
     history.push({
       role: 'assistant',
       content: 'Entschuldigung, ich konnte gerade keine Antwort erhalten. Bitte versuche es erneut.',
-    });
-  }
-
-  // Wenn eine TAN-Abfrage nötig ist, zusätzliche Nachricht anhängen
-  if (verified && verified.requireTan && !pendingImage) {
-    history.push({
-      role: 'assistant',
-      content: `Richtige Antwort! 🔒 Zur Sicherheit brauche ich noch einen TAN-Code: Bitte nenne mir den Code aus Zeile ${verified.row} der TAN-Liste.`,
     });
   }
 
@@ -420,6 +565,56 @@ function promptPrint() {
   history.push(aiMsg);
   saveJSON(STORAGE_KEY_HISTORY, history);
   renderAll();
+}
+
+/* ---------- Neustart-Erkennung ---------- */
+function isRestartRequest(text) {
+  const t = normalize(text);
+  const keywords = ['neustart', 'neu starten', 'von vorne', 'neu beginnen', 'alles löschen', 'verlauf löschen', 'zurücksetzen', 'reset', 'neu anfangen'];
+  return keywords.some((k) => t === k || t.includes(k));
+}
+
+/* Erkennt, ob eine Eingabe wie ein TAN-Code aussieht (nur Ziffern) */
+function looksLikeTan(text) {
+  const t = text.trim();
+  return /^\d{3,8}$/.test(t);
+}
+
+function doRestart() {
+  history = [];
+  completedQuests = [];
+  pendingTan = null;
+  saveJSON(STORAGE_KEY_HISTORY, history);
+  saveJSON(STORAGE_KEY_QUESTS, completedQuests);
+  ensureWelcome();
+  renderQuests();
+  renderAll();
+  showToast('Verlauf gelöscht – wir beginnen neu.', 'success');
+}
+
+/* ---------- Bestätigungs-Buttons (Ja/Nein) ---------- */
+function renderRestartActions() {
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+
+  const yesBtn = document.createElement('button');
+  yesBtn.className = 'btn btn-primary btn-sm';
+  yesBtn.textContent = '✅ Ja, alles löschen';
+  yesBtn.addEventListener('click', () => doRestart());
+
+  const noBtn = document.createElement('button');
+  noBtn.className = 'btn btn-ghost btn-sm';
+  noBtn.textContent = 'Nein, abbrechen';
+  noBtn.addEventListener('click', () => {
+    history.push({ role: 'assistant', content: 'Alles klar, dein Verlauf bleibt erhalten. 🙂' });
+    saveJSON(STORAGE_KEY_HISTORY, history);
+    renderAll();
+  });
+
+  actions.appendChild(yesBtn);
+  actions.appendChild(noBtn);
+  messagesEl.appendChild(actions);
+  scrollToBottom();
 }
 
 // Render-Druckdialog-Buttons als Teil einer Nachricht
@@ -537,12 +732,7 @@ document.addEventListener('keydown', (e) => {
 
 $('#btnClearHistory').addEventListener('click', () => {
   if (confirm('Möchtest du den Chatverlauf wirklich zurücksetzen?')) {
-    history = [];
-    pendingTan = null;
-    saveJSON(STORAGE_KEY_HISTORY, history);
-    ensureWelcome();
-    renderAll();
-    showToast('Verlauf zurückgesetzt.');
+    doRestart();
   }
 });
 

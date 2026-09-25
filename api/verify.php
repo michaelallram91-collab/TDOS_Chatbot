@@ -23,11 +23,14 @@ $data = readJsonBody();
 if (isset($data['tan']) && isset($data['questId'])) {
     $tan = normalizeText((string)$data['tan']);
     $questId = (int)$data['questId'];
-    $studentId = (string)($data['student_id'] ?? '');
 
-    $row = isset($data['row']) ? (int)$data['row'] : tanRowFor($studentId, $questId);
+    // Die Zeile kommt vom Frontend mit (wurde in Schritt 1 zufällig gewählt).
+    $row = isset($data['row']) ? (int)$data['row'] : 0;
+    if ($row <= 0) {
+        jsonResponse(['tanOk' => false]);
+    }
+
     $tans = loadTans();
-
     $expected = isset($tans[$row]) ? normalizeText((string)$tans[$row]) : '';
 
     if ($expected !== '' && $tan === $expected) {
@@ -71,7 +74,9 @@ foreach ($quests as $q) {
 }
 
 if ($matched) {
-    $row = tanRowFor($studentId, (int)$matched['id']);
+    // Zufällige Zeile pro Anfrage → jeder Schüler bekommt (auch bei gleicher
+    // Antwort) eine andere Zeile abgefragt.
+    $row = randomTanRow();
     jsonResponse([
         'matched'    => true,
         'requireTan' => true,
