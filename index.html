@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BHAK/BHAS Schwaz – Interaktive Schulrallye</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Header mit Logo -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <img src="assets/logo.png" alt="BHAK/BHAS Schwaz Logo" class="logo" id="logoImg">
+        <div class="brand-text">
+          <span class="brand-title">BHAK/BHAS Schwaz</span>
+          <span class="brand-sub">Tag der offenen Tür · Interaktive Schulrallye</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost" id="btnQuests">
+          <span class="btn-icon">🏆</span> Quests
+          <span class="quest-badge" id="questBadge">0/5</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Chat Hauptbereich -->
+  <main class="chat-wrap">
+    <div class="chat-container">
+      <div class="chat-toolbar">
+        <div class="chat-toolbar-left">
+          <input type="text" id="searchInput" class="search" placeholder="🔍 Nachrichten durchsuchen…">
+        </div>
+        <div class="chat-toolbar-right">
+          <button class="btn btn-ghost btn-sm" id="btnClearHistory" title="Verlauf löschen">🗑 Neustart</button>
+        </div>
+      </div>
+
+      <div class="messages" id="messages">
+        <div class="welcome" id="welcome">
+          <img src="assets/logo.png" alt="Logo" class="welcome-logo" id="welcomeLogo">
+          <h2>Herzlich Willkommen!</h2>
+          <p>Löse alle Quests, um das Rätsel zu lösen. Stelle mir deine Fragen – ich helfe dir weiter.</p>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="image-preview" id="imagePreview" hidden>
+          <img id="previewImg" alt="Vorschau">
+          <button class="remove-img" id="removeImg" title="Bild entfernen">✕</button>
+        </div>
+        <form class="composer-form" id="chatForm">
+          <label class="attach" for="fileInput" title="Bild anhängen">📎</label>
+          <input type="file" id="fileInput" accept="image/*" hidden>
+          <textarea id="chatInput" rows="1" placeholder="Schreibe deine Nachricht…"></textarea>
+          <button type="submit" class="send" id="sendBtn" title="Senden">➤</button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <!-- Quests Popup -->
+  <div class="modal-overlay" id="questModal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Deine Quests</h3>
+        <button class="modal-close" id="btnCloseModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Erfülle die Aufgaben, um die Schulrallye zu meistern. Erledigte Quests erhältst du grün.</p>
+        <ul class="quest-list" id="questList"></ul>
+        <div class="modal-footer">
+          <span id="progressText" class="progress-text">0 von 5 erledigt</span>
+          <button class="btn btn-primary" id="btnCloseModal2">Schließen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
