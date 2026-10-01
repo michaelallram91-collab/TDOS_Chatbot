@@ -5,8 +5,16 @@
  */
 
 return [
-    // Aktiver AI-Provider: 'freegpt' oder 'deepseek'
+    // Aktiver AI-Provider: 'mistral', 'freegpt' oder 'deepseek'
     'provider' => 'freegpt',
+
+    // Mistral API Konfiguration (https://console.mistral.ai/)
+    'mistral' => [
+        'api_key'      => 'DEIN_MISTRAL_API_KEY',
+        'base_url'     => 'https://api.mistral.ai/v1',
+        'model'        => 'mistral-small-2603',   // Text-Modell
+        'vision_model' => 'pixtral-12b-2409',     // Modell mit Bilderkennung
+    ],
 
     // DeepSeek API Konfiguration
     'deepseek' => [

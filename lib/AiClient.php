@@ -22,11 +22,53 @@ class AiClient
     {
         $provider = $this->config['provider'] ?? 'freegpt';
 
-        if ($provider === 'deepseek') {
-            return $this->chatDeepSeek($messages, $images);
+        switch ($provider) {
+            case 'mistral':
+                return $this->chatMistral($messages, $images);
+            case 'deepseek':
+                return $this->chatDeepSeek($messages, $images);
+            case 'freegpt':
+                return $this->chatFreeGpt($messages, $images);
+            default:
+                return ['error' => 'Unbekannter AI-Provider: ' . $provider];
+        }
+    }
+
+    /**
+     * Mistral ist OpenAI-kompatibel: Text- und Vision-Modelle möglich.
+     */
+    private function chatMistral(array $messages, ?array $images = null): array
+    {
+        $cfg = $this->config['mistral'] ?? [];
+
+        if (empty($cfg['api_key'])) {
+            return ['error' => 'Mistral API-Key fehlt in der Konfiguration.'];
         }
 
-        return $this->chatFreeGpt($messages, $images);
+        $useVision = !empty($images);
+
+        $model = $useVision
+            ? ($cfg['vision_model'] ?? $cfg['model'] ?? 'pixtral-12b-2409')
+            : ($cfg['model'] ?? 'mistral-small-2603');
+
+        $url = rtrim($cfg['base_url'] ?? 'https://api.mistral.ai/v1', '/') . '/chat/completions';
+
+        $body = [
+            'model'       => $model,
+            'messages'    => $messages,
+            'temperature' => 0.7,
+            'stream'      => false,
+        ];
+
+        if ($useVision) {
+            $body = $this->withVisionContent($body, $images);
+        }
+
+        $headers = [
+            'Authorization: Bearer ' . $cfg['api_key'],
+        ];
+
+        return $this->post($url, $body, $headers);
     }
 
     private function chatFreeGpt(array $messages, ?array $images = null): array
@@ -72,15 +114,7 @@ class AiClient
         ];
 
         if ($useVision) {
-            $last = $messages[count($messages) - 1];
-            $content = [['type' => 'text', 'text' => $last['content']]];
-            foreach ($images as $img) {
-                $content[] = [
-                    'type' => 'image_url',
-                    'image_url' => ['url' => 'data:' . $img['mime'] . ';base64,' . $img['data']],
-                ];
-            }
-            $body['messages'][count($body['messages']) - 1]['content'] = $content;
+            $body = $this->withVisionContent($body, $images);
         }
 
         $headers = [
@@ -88,6 +122,26 @@ class AiClient
         ];
 
         return $this->post($url, $body, $headers);
+    }
+
+    /**
+     * Baut aus dem letzten Message-Eintrag einen multimodalen Content
+     * (Text + Bilder) für OpenAI-kompatible Vision-Modelle.
+     */
+    private function withVisionContent(array $body, array $images): array
+    {
+        $last = $body['messages'][count($body['messages']) - 1];
+        $content = [['type' => 'text', 'text' => $last['content']]];
+
+        foreach ($images as $img) {
+            $content[] = [
+                'type' => 'image_url',
+                'image_url' => ['url' => 'data:' . $img['mime'] . ';base64,' . $img['data']],
+            ];
+        }
+
+        $body['messages'][count($body['messages']) - 1]['content'] = $content;
+        return $body;
     }
 
     private function post(string $url, array $body, array $headers = []): array
