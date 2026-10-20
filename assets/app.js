@@ -271,10 +271,17 @@ function inlineFormat(text) {
   // Erst HTML-escapen, damit Markdown-Zeichen sicher ersetzt werden können
   let t = escapeHtml(text);
 
-  // Bilder per URL (png/jpg/jpeg/gif/webp)
+  // Bilder per URL (png/jpg/jpeg/gif/webp) zuerst – mit Platzhalter schützen,
+  // damit die späteren Link-/Kursiv-Ersetzungen die fertige <img> nicht kaputt machen.
+  const imgPlaceholders = [];
   t = t.replace(
-    /(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp))/gi,
-    '<a class="img-link" href="$1" target="_blank" rel="noopener"><img class="msg-image" src="$1" alt="Bild"></a>'
+    /(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp)(?:\?[^\s<>"']*)?)/gi,
+    (m, url) => {
+      const idx = imgPlaceholders.push(
+        '<a class="img-link" href="' + url + '" target="_blank" rel="noopener"><img class="msg-image" src="' + url + '" alt="Bild" onerror="this.onerror=null;this.outerHTML=\'<a class=&quot;img-link&quot; href=&quot;' + url + '&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;>🖼️ Bild ansehen (Link öffnen)</a>\';"></a>'
+      ) - 1;
+      return "\u0000IMG" + idx + "\u0000";
+    }
   );
 
   // Fett **text**
@@ -288,6 +295,9 @@ function inlineFormat(text) {
     /(https?:\/\/[^\s<>"']+)/gi,
     '<a href="$1" target="_blank" rel="noopener">$1</a>'
   );
+
+  // Bild-Platzhalter zurückwandeln
+  t = t.replace(/\u0000IMG(\d+)\u0000/g, (m, i) => imgPlaceholders[parseInt(i, 10)]);
 
   return t;
 }

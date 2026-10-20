@@ -72,6 +72,18 @@ return [
         'title'       => 'Suche den Ort',
         'description' => 'Löse das Bild-Rätsel',
         'question'    => 'Aufgabe 4: Suche den gezeigten Ort.',
+        // WICHTIG: Hier muss eine DIREKTE Bild-URL stehen, die direkt die
+        // Bilddatei liefert (endet z. B. auf .jpg/.png) und KEINE Webseite ist.
+        //
+        // NICHT verwenden: Pixabay-Download-Links wie
+        //   https://pixabay.com/de/images/download/x-10455132_1920.jpg
+        // (das ist eine HTML-Download-Seite und wird NICHT als Bild angezeigt).
+        //
+        // Empfohlen: Lege dein Rätsel-Bild z. B. als assets/raetsel-ort.jpg im
+        // Projekt ab und trage hier den relativen Pfad ein:
+        //   'imageUrl' => 'assets/raetsel-ort.jpg',
+        // Oder nutze eine echte Direkt-URL (CDN), z. B.:
+        //   'imageUrl' => 'https://cdn.pixabay.com/photo/.../_1920.jpg',
         'imageUrl'    => 'https://pixabay.com/de/images/download/x-10455132_1920.jpg',
         'answers'     => ['AULA'],
         'hints'       => [
