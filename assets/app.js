@@ -431,12 +431,31 @@ async function sendMessage() {
       return;
     }
 
-    // Keine TAN-Eingabe → normale Nachricht, KI antwortet, pendingTan bleibt bestehen.
+    // Keine TAN-Eingabe → der Schüler muss ZUERST den TAN nennen, bevor es
+    // mit der nächsten Aufgabe weitergeht. Wir lassen die KI nicht in freie
+    // Antworten abdriften, sonst gerät der Quest-Fortschritt aus dem Takt.
+    const lower = normalize(text);
+    const isSkipWord = ['weiter', 'ok', 'okay', 'danke', 'naechster', 'nächster'].includes(lower);
+    if (isSkipWord) {
+      typing.remove();
+      history.push({
+        role: 'assistant',
+        content: `Bitte nenne mir zuerst den TAN-Code aus **Zeile ${pendingTan.row}**, dann geht es weiter. 🙏`,
+      });
+      saveJSON(STORAGE_KEY_HISTORY, history);
+      renderAll();
+      sendBtn.disabled = false;
+      return;
+    }
+
+    // Sonst: normale Nachricht, aber das Quest wird NICHT abgehakt, solange
+    // der TAN fehlt.
     const aiReply = await callChat(text);
     typing.remove();
     history.push({
       role: 'assistant',
-      content: aiReply || 'Entschuldigung, ich konnte gerade keine Antwort erhalten. Bitte versuche es erneut.',
+      content: (aiReply ? aiReply + '\n\n' : '') +
+        `Zur Erinnerung: Ich warte noch auf den TAN-Code aus **Zeile ${pendingTan.row}**, damit die Aufgabe als erfüllt gilt.`,
     });
     saveJSON(STORAGE_KEY_HISTORY, history);
     renderAll();
@@ -565,6 +584,9 @@ async function uploadAndChat(text, imageFile) {
     return {
       content: data.ai || null,
       accepted: !!data.accepted,
+      quest_id: data.quest_id ?? null,
+      require_tan: !!data.require_tan,
+      row: data.row ?? null,
       error: null,
     };
   } catch (e) {
