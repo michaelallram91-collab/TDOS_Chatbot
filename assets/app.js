@@ -100,8 +100,9 @@ function renderQuests() {
     const li = document.createElement('li');
     li.className = 'quest-item' + (done ? ' done' : '');
     let imgReq = '';
-    if (q.imageBased && q.imageRequirement) {
-      imgReq = `<div class="quest-img-req">📷 ${escapeHtml(q.imageRequirement)}</div>`;
+    if (q.imageBased && q.imageRequirements) {
+      const reqs = Array.isArray(q.imageRequirements) ? q.imageRequirements : [q.imageRequirements];
+      imgReq = `<div class="quest-img-req">📷 ${reqs.map((r) => escapeHtml(r)).join('<br>')}</div>`;
     }
     let questImg = '';
     if (q.imageUrl) {
@@ -469,19 +470,31 @@ async function sendMessage() {
     const uploadResult = await uploadAndChat(text, imageFile);
     aiReply = uploadResult.content;
 
-    // Foto-Aufgabe nur erfüllen, wenn die KI das gesuchte Ziel erkannt hat
-    if (uploadResult.accepted) {
-      const imgQuest = QUESTS.find((q) => q.imageBased && !isQuestDone(q.id));
-      if (imgQuest) {
-        markQuestDone(imgQuest.id);
-      }
-    }
-
     // Fehlerfall: konkrete Meldung anzeigen
     if (uploadResult.error) {
       aiReply = '⚠️ ' + uploadResult.error;
-    } else if (!aiReply) {
+    } else if (!uploadResult.accepted && !aiReply) {
       aiReply = 'Dein Bild wurde hochgeladen, aber ich konnte es nicht auswerten. Bitte versuche es erneut oder nenne das Codewort.';
+    }
+
+    // Wenn die KI das gesuchte Ziel erkannt hat → TAN-Abfrage wie bei Text-Aufgaben.
+    // Das Quest wird erst NACH dem korrekten TAN als erfüllt markiert.
+    if (uploadResult.accepted && uploadResult.require_tan) {
+      const questId = uploadResult.quest_id;
+      const q = QUESTS.find((x) => x.id === questId);
+      pendingTan = { questId, title: q ? q.title : '', row: uploadResult.row };
+      typing.remove();
+
+      // Antwort der KI + TAN-Hinweis anzeigen
+      history.push({
+        role: 'assistant',
+        content: (aiReply ? aiReply + '\n\n' : '') +
+          `Das Foto passt! 🔒 Zur Sicherheit brauche ich noch einen TAN-Code: Bitte nenne mir den Code aus **Zeile ${uploadResult.row}** der TAN-Liste.`,
+      });
+      saveJSON(STORAGE_KEY_HISTORY, history);
+      renderAll();
+      sendBtn.disabled = false;
+      return;
     }
   } else {
     aiReply = await callChat(text);
@@ -531,6 +544,11 @@ async function uploadAndChat(text, imageFile) {
   fd.append('message', text);
   fd.append('student_id', studentId);
   fd.append('history', JSON.stringify(history.slice(0, -1)));
+  // Die aktuell offene Foto-Quest mitgeben, damit die richtige Aufgabe geprüft wird.
+  const openImgQuest = QUESTS.find((q) => q.imageBased && !isQuestDone(q.id));
+  if (openImgQuest) {
+    fd.append('quest_id', String(openImgQuest.id));
+  }
   try {
     const resp = await fetch('api/upload.php', { method: 'POST', body: fd });
     const data = await resp.json();

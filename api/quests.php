@@ -16,7 +16,7 @@ foreach ($quests as $q) {
         'title'        => $q['title'] ?? '',
         'description'  => $q['description'] ?? '',
         'imageBased'   => !empty($q['imageBased']),
-        'imageRequirement' => $q['imageRequirement'] ?? null,
+        'imageRequirements' => $q['imageRequirements'] ?? ($q['imageRequirement'] ? [$q['imageRequirement']] : []),
         'imageUrl'     => $q['imageUrl'] ?? null,
         'hintCount'    => count($q['hints'] ?? []),
     ];

@@ -74,13 +74,34 @@ $aiReply = null;
 $message = trim((string)($_POST['message'] ?? ''));
 $history = json_decode((string)($_POST['history'] ?? ''), true) ?: [];
 
-// Die aktuelle Foto-Quest (imageBased) mit ihrer Bildanforderung ermitteln
+// Die passende Foto-Quest ermitteln. Der Schüler kann auch mehrere
+// Foto-Quests haben; wir nehmen die erste, die noch nicht erledigt ist.
+// Das Frontend übermittelt optional die Quest-ID, damit eindeutig klar ist,
+// welche Aufgabe gemeint ist.
+$requestedQuestId = isset($_POST['quest_id']) ? (int)$_POST['quest_id'] : 0;
+
 $imageQuest = null;
 foreach (loadQuests() as $q) {
-    if (!empty($q['imageBased'])) {
+    if (empty($q['imageBased'])) {
+        continue;
+    }
+    if ($requestedQuestId > 0 && (int)$q['id'] === $requestedQuestId) {
         $imageQuest = $q;
         break;
     }
+    if ($imageQuest === null) {
+        $imageQuest = $q;
+    }
+}
+
+// Die möglichen Bildinhalte ermitteln (eine ODER-Liste).
+$imageRequirements = [];
+if ($imageQuest) {
+    $reqs = $imageQuest['imageRequirements'] ?? [];
+    if (!$reqs && !empty($imageQuest['imageRequirement'])) {
+        $reqs = [$imageQuest['imageRequirement']];
+    }
+    $imageRequirements = array_values(array_filter(array_map('trim', $reqs), fn($r) => $r !== ''));
 }
 
 $client = new AiClient();
@@ -98,16 +119,25 @@ foreach ($history as $msg) {
     }
 }
 
-// Gezielte Auswertung: Ist das gesuchte Ziel auf dem Bild zu sehen?
+// Gezielte Auswertung: Ist EINER der erlaubten Inhalte auf dem Bild zu sehen?
+// Wichtig: Wir fordern eine EINDEUTIGE, strukturierte Antwort an, damit die
+// Auswertung nicht von freier Formulierung abhängt.
 $aiPrompt = $message;
-if (empty($aiPrompt)) {
-    if ($imageQuest && !empty($imageQuest['imageRequirement'])) {
-        $aiPrompt = 'Ich habe ein Foto hochgeladen. Prüfe bitte, ob darauf Folgendes zu sehen ist: '
-            . $imageQuest['imageRequirement']
-            . '. Antworte klar mit JA (wenn es erkennbar ist) oder NEIN (wenn es fehlt), und gib kurz Feedback.';
-    } else {
-        $aiPrompt = 'Ich habe dieses Bild hochgeladen. Bitte beschreibe kurz, was darauf zu sehen ist.';
+if (empty($aiPrompt) && $imageQuest) {
+    $listText = '';
+    foreach ($imageRequirements as $i => $r) {
+        $listText .= ($i + 1) . ') ' . $r . "\n";
     }
+    $aiPrompt =
+        "Ich habe ein Foto zu der aktuellen Foto-Aufgabe hochgeladen.\n"
+        . "Auf dem Foto darf EINER der folgenden Inhalte zu sehen sein (es genügt ein Treffer):\n"
+        . $listText
+        . "Prüfe das Bild genau und antworte NUR mit einem einzigen Wort:\n"
+        . '- "JA", wenn mindestens eine der genannten Optionen klar erkennbar ist.\n'
+        . '- "NEIN", wenn keine der Optionen erkennbar ist.\n'
+        . 'Schreibe danach in einer neuen Zeile höchstens einen kurzen Satz Feedback.';
+} elseif (empty($aiPrompt)) {
+    $aiPrompt = 'Ich habe dieses Bild hochgeladen. Bitte beschreibe kurz, was darauf zu sehen ist.';
 }
 
 $apiMessages[] = ['role' => 'user', 'content' => $aiPrompt];
@@ -117,34 +147,52 @@ if (!isset($res['error'])) {
     $aiReply = $res['content'];
 }
 
-// Auswertung: Hat die KI das gesuchte Ziel auf dem Bild erkannt?
-// Wir prüfen heuristisch auf eine positive Antwort (JA-basiert).
+// Auswertung: Wir suchen gezielt nach einem führenden JA/NEIN (strukturierte
+// Antwort). So vermeiden wir Fehlinterpretationen von Fließtext.
+// Für accepted Bild-Aufgaben wird (wie bei Text-Aufgaben) eine zufällige
+// TAN-Zeile gewählt, damit auch Foto-Quests über die TAN-Prüfung laufen.
+$tanRow = 0;
+
 $accepted = false;
 if ($aiReply !== null) {
-    $lower = mb_strtolower($aiReply, 'UTF-8');
-    // Positive Signale
-    $positive = ['ja', 'ja!', 'yes', 'stimmt', 'richtig', 'passt', 'erkennbar', 'zu sehen', 'super', 'perfekt', 'genau'];
-    $negative = ['nein', ' no ', ' no.', ' no!', 'fehlt', 'nicht zu sehen', 'nicht erkennbar', 'leider nicht', 'nein,', 'auf dem bild ist kein'];
+    $firstLine = trim(explode("\n", trim($aiReply))[0] ?? '');
+    $firstLower = normalizeText($firstLine);
 
-    $hasPositive = false;
-    $hasNegative = false;
-    foreach ($positive as $p) {
-        if (strpos($lower, $p) !== false) { $hasPositive = true; break; }
-    }
-    foreach ($negative as $n) {
-        if (strpos($lower, $n) !== false) { $hasNegative = true; break; }
-    }
+    // Strukturierte Antwort: erster Token ist "ja" oder "nein"
+    if (preg_match('/^\s*(ja|yes|nein|no)\b/i', $firstLower, $m)) {
+        $accepted = strtolower($m[1]) === 'ja' || strtolower($m[1]) === 'yes';
+    } else {
+        // Fallback: reine Signalwort-Prüfung auf der gesamten Antwort.
+        $lower = mb_strtolower($aiReply, 'UTF-8');
+        $positive = ['ja', 'yes', 'richtig', 'passt', 'erkennbar', 'zu sehen', 'genau'];
+        $negative = ['nein', 'no', 'fehlt', 'nicht zu sehen', 'nicht erkennbar', 'leider nicht', 'kein'];
 
-    if ($hasPositive && !$hasNegative) {
-        $accepted = true;
+        $hasNegative = false;
+        foreach ($negative as $n) {
+            if (strpos($lower, $n) !== false) { $hasNegative = true; break; }
+        }
+        if (!$hasNegative) {
+            $hasPositive = false;
+            foreach ($positive as $p) {
+                if (strpos($lower, $p) !== false) { $hasPositive = true; break; }
+            }
+            $accepted = $hasPositive;
+        }
     }
 }
 
+if ($imageQuest && $accepted) {
+    $tanRow = randomTanRow();
+}
+
 jsonResponse([
-    'url'        => $publicUrl,
-    'file'       => $name,
-    'student_id' => $studentId,
-    'ai'         => $aiReply,
-    'accepted'   => $accepted,
-    'mime'       => $mime,
+    'url'         => $publicUrl,
+    'file'        => $name,
+    'student_id'  => $studentId,
+    'ai'          => $aiReply,
+    'accepted'    => $imageQuest ? $accepted : false,
+    'quest_id'    => $imageQuest ? (int)$imageQuest['id'] : null,
+    'require_tan' => (bool)$imageQuest,
+    'row'         => $tanRow,
+    'mime'        => $mime,
 ]);

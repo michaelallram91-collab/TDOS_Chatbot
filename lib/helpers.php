@@ -214,11 +214,25 @@ function buildQuestsContext(): string
         $lines[] = "Aufgabe {$id}: {$question}";
 
         if (!empty($q['imageBased'])) {
-            $req = $q['imageRequirement'] ?? 'ein passendes Foto';
-            $lines[] = "  (Foto-Aufgabe: {$req})";
+            $reqs = $q['imageRequirements'] ?? [];
+            if (!$reqs && !empty($q['imageRequirement'])) {
+                $reqs = [$q['imageRequirement']];
+            }
+            if ($reqs) {
+                $lines[] = '  (Foto-Aufgabe – einer dieser Inhalte genügt):';
+                foreach ($reqs as $r) {
+                    $lines[] = "    - {$r}";
+                }
+            } else {
+                $lines[] = '  (Foto-Aufgabe: ein passendes Foto)';
+            }
             if (!empty($q['codeword'])) {
                 $lines[] = "  (Codewort als Ersatz: {$q['codeword']})";
             }
+        }
+
+        if (!empty($q['imageUrl'])) {
+            $lines[] = "  (Hinweis: Zu dieser Aufgabe gehört ein Rätsel-Bild mit dieser URL: {$q['imageUrl']} – beschreibe es bei Bedarf, ohne die Lösung zu verraten)";
         }
 
         $answers = $q['answers'] ?? [];

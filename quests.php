@@ -11,7 +11,9 @@
  *  - answers       : Liste der richtigen Antworten (Schreibweisen, wird normalisiert verglichen)
  *  - hints         : abgestufte Hinweise (die KI gibt sie nur nach und nach preis)
  *  - imageBased    : true, wenn ein Foto hochgeladen werden muss
- *  - imageRequirement : was auf dem Bild zu sehen sein muss (z. B. "High five mit dem Direktor")
+ *  - imageRequirements : Liste von Dingen, die auf dem Bild zu sehen sein dürfen.
+ *                     EIN Treffer reicht (ODER-Verknüpfung). z. B. eine Handflächen-Geste
+ *                     ODER ein Foto mit einem Buddy. Jeder Eintrag ist eine Alternative.
  *  - codeword      : optionales Codewort als Ersatz, falls kein Bild möglich ist
  *  - imageUrl      : optional eine Bild-URL, die im Quest-Popup angezeigt wird
  *                     (z. B. ein Rätsel-Bild, das den gesuchten Ort zeigt)
@@ -38,11 +40,18 @@ return [
         'question'    => 'Aufgabe 2: Mach ein Foto, auf dem du dem Direktor ein High five gibst, und lade es hier hoch.',
         'answers'     => ['DIRECTOR'],
         'imageBased'  => true,
-        'imageRequirement' => 'High five mit dem Direktor (ein Foto, auf dem der Schüler dem Direktor ein High five gibt)',
+        // Hier legst du fest, WELCHE Fotos als erfüllt gelten.
+        // Jeder Eintrag ist eine EIGENE, akzeptierte Möglichkeit (ODER-Verknüpfung).
+        'imageRequirements' => [
+            'Ein High five zwischen einem Schüler und dem Direktor',
+            'Eine Handflächen-Geste (jemand zeigt gut sichtbar die flache Handfläche in die Kamera)',
+            'Ein Foto, auf dem der Schüler zusammen mit einem Buddy zu sehen ist',
+        ],
         'codeword'    => 'DIRECTOR',
         'hints'       => [
             'Der Direktor kennt das Codewort für diese Aufgabe.',
-            'Frage einen Buddy.',
+            'Du darfst den Direktor auch die Handfläche zeigen (kein Körperkontakt nötig).',
+            'Alternativ geht auch ein Foto zusammen mit einem Buddy.',
         ],
     ],
     [

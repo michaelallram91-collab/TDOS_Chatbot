@@ -47,15 +47,51 @@ $studentId = (string)($data['student_id'] ?? '');
 $quests = loadQuests();
 $messageNorm = normalizeText($message);
 
+/**
+ * Prüft, ob eine normalisierte Antwort EXAKT einer Lösung entspricht.
+ *
+ * Wir vergleichen auf Wort-Ebene, damit Teil-Antworten NICHT als richtig
+ * durchgehen (z. B. "DV7" darf NICHT "DVS7" treffen) und damit ein harmloser
+ * Satz nicht zufällig eine Lösung "enthält".
+ *
+ * Regel: Die Antwort gilt als richtig, wenn
+ *   - die gesamte Eingabe exakt der Lösung entspricht, ODER
+ *   - die Lösung als EIGENSTÄNDIGES Wort (getrennt durch Leerzeichen,
+ *     Satzzeichen oder Wortgrenzen) in der Eingabe vorkommt.
+ */
+function answerMatches(string $inputNorm, string $answerNorm): bool
+{
+    if ($inputNorm === '') {
+        return false;
+    }
+
+    // Exakte Übereinstimmung
+    if ($inputNorm === $answerNorm) {
+        return true;
+    }
+
+    // Als eigenständiges Wort vorhanden (nicht als Teil eines längeren Wortes).
+    // Wir suchen mit Wortgrenzen. Da Antworten auch Ziffern enthalten können
+    // (z. B. "DVS7"), nutzen wir eine Lookahead/Lookbehind-Konstruktion.
+    if (preg_match('/\b' . preg_quote($answerNorm, '/') . '\b/u', $inputNorm)) {
+        return true;
+    }
+
+    return false;
+}
+
 $matched = null;
 
 foreach ($quests as $q) {
     // Foto-Aufgaben: Codewort wird wie Text geprüft (Bildinhalt übernimmt die KI)
     if (!empty($q['imageBased'])) {
         $codeword = $q['codeword'] ?? null;
-        if ($codeword !== null && $codeword !== '' && strpos($messageNorm, normalizeText($codeword)) !== false) {
-            $matched = $q;
-            break;
+        if ($codeword !== null && $codeword !== '') {
+            $cw = normalizeText($codeword);
+            if (answerMatches($messageNorm, $cw)) {
+                $matched = $q;
+                break;
+            }
         }
         continue;
     }
@@ -66,7 +102,7 @@ foreach ($quests as $q) {
         if ($a === '') {
             continue;
         }
-        if ($messageNorm === $a || strpos($messageNorm, $a) !== false) {
+        if (answerMatches($messageNorm, $a)) {
             $matched = $q;
             break 2;
         }
