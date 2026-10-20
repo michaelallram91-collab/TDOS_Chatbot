@@ -79,12 +79,9 @@ return [
         //   https://pixabay.com/de/images/download/x-10455132_1920.jpg
         // (das ist eine HTML-Download-Seite und wird NICHT als Bild angezeigt).
         //
-        // Empfohlen: Lege dein Rätsel-Bild z. B. als assets/raetsel-ort.jpg im
-        // Projekt ab und trage hier den relativen Pfad ein:
-        //   'imageUrl' => 'assets/raetsel-ort.jpg',
-        // Oder nutze eine echte Direkt-URL (CDN), z. B.:
-        //   'imageUrl' => 'https://cdn.pixabay.com/photo/.../_1920.jpg',
-        'imageUrl'    => 'https://pixabay.com/de/images/download/x-10455132_1920.jpg',
+        // Alternativ: Lege dein Rätsel-Bild z. B. als assets/raetsel-ort.jpg
+        // im Projekt ab und trage den relativen Pfad ein.
+        'imageUrl'    => 'https://pixabay.com/get/g4254881af1e97707f14a2c8e259ee08b54086d9f4e1f38af4f2480f9164dced0501eba97d9213f8aeea4240b7e3d1c92_1920.jpg',
         'answers'     => ['AULA'],
         'hints'       => [
             'Frage einen Buddy.',
