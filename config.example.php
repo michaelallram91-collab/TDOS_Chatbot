@@ -9,16 +9,22 @@ return [
     // 'ollama' = zwei getrennte lokale Server (Sprache auf Server 1, Bild auf Server 2).
     'provider' => 'ollama',
 
-    // Sprach-KI auf Server 1 (Ollama, z. B. qwen 8b)
+    // ╔══════════════════════════════════════════════════════════════╗
+    // ║  LOKALE KIs – HIER DIE ADRESSEN EINTRAGEN                     ║
+    // ╚══════════════════════════════════════════════════════════════╝
+    //
+    // Sprach-KI (Server 1): base_url = Adresse deiner Ollama-Sprach-KI
+    //   → z. B. 'http://192.168.0.10:11434'
     'ollama_text' => [
-        'base_url' => 'http://SERVER1_IP:11434',   // z. B. http://192.168.0.10:11434
+        'base_url' => 'http://SERVER1_IP:11434',   // ⬅️ HIER Server-1-Adresse eintragen
         'model'    => 'qwen2.5:8b',
         'api_key'  => '',                           // meist leer bei lokalen Instanzen
     ],
 
-    // Bild-KI auf Server 2 (Ollama mit Vision-Modell)
+    // Bild-KI (Server 2): base_url = Adresse deiner Ollama-Bild-KI
+    //   → z. B. 'http://192.168.0.11:11434'
     'ollama_vision' => [
-        'base_url' => 'http://SERVER2_IP:11434',   // z. B. http://192.168.0.11:11434
+        'base_url' => 'http://SERVER2_IP:11434',   // ⬅️ HIER Server-2-Adresse eintragen
         'model'    => 'llava',                     // z. B. llava, llava-phi3, bakllava
         'api_key'  => '',
     ],
