@@ -116,6 +116,17 @@ function normalizeText(string $s): string
 }
 
 /**
+ * Unterordner eines Schülers im uploads-Verzeichnis.
+ * Jeder Schüler bekommt einen EIGENEN Ordner, damit die Dateien
+ * eindeutig einer Person zugeordnet sind.
+ */
+function studentUploadDir(string $studentId): string
+{
+    $config = loadConfig();
+    return rtrim($config['upload_dir'], '/\\') . '/' . $studentId;
+}
+
+/**
  * Manifest-Datei für die Schüler->Bilder-Zuordnung.
  */
 function imageManifestPath(): string
@@ -125,6 +136,7 @@ function imageManifestPath(): string
 
 /**
  * Ordnet ein hochgeladenes Bild einem Schüler zu.
+ * Die Datei liegt bereits im Schüler-Unterordner uploads/{studentId}/.
  */
 function registerImageForStudent(string $studentId, string $filename): void
 {
@@ -146,7 +158,7 @@ function registerImageForStudent(string $studentId, string $filename): void
         'time' => time(),
     ];
 
-    file_put_contents($path, json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
+    file_put_contents($path, json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
 }
 
 /**
@@ -155,42 +167,64 @@ function registerImageForStudent(string $studentId, string $filename): void
 function getStudentImages(string $studentId = ''): array
 {
     $config = loadConfig();
-    $dir = rtrim($config['upload_dir'], '/\\');
+    $baseDir = rtrim($config['upload_dir'], '/\\');
     $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     $images = [];
-    $manifestPath = imageManifestPath();
 
-    if ($studentId !== '' && is_file($manifestPath)) {
-        $manifest = json_decode(file_get_contents($manifestPath), true) ?: [];
-        if (isset($manifest[$studentId])) {
-            foreach ($manifest[$studentId] as $entry) {
-                $file = $entry['file'] ?? '';
-                if ($file === '' || !is_file($dir . '/' . $file)) {
+    if ($studentId !== '') {
+        // Eindeutige Zuordnung: nur der Schüler-Ordner wird gelesen.
+        $dir = studentUploadDir($studentId);
+        if (is_dir($dir)) {
+            foreach (scandir($dir) as $file) {
+                if ($file === '.' || $file === '..') {
+                    continue;
+                }
+                $full = $dir . '/' . $file;
+                if (!is_file($full)) {
+                    continue;
+                }
+                $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                if (!in_array($ext, $allowed, true)) {
                     continue;
                 }
                 $images[] = [
                     'file' => $file,
-                    'url'  => 'uploads/' . $file,
-                    'time' => filemtime($dir . '/' . $file),
+                    'url'  => 'uploads/' . $studentId . '/' . $file,
+                    'time' => filemtime($full),
                 ];
             }
         }
+        usort($images, fn($a, $b) => $a['time'] <=> $b['time']);
         return $images;
     }
 
-    // Alle Bilder (Fallback: Directory-Scan)
-    if (is_dir($dir)) {
-        foreach (scandir($dir) as $file) {
-            if ($file === '.' || $file === '..' || $file === '_manifest.json') {
+    // Alle Bilder (Fallback: alle Schüler-Unterordner scannen)
+    if (is_dir($baseDir)) {
+        foreach (scandir($baseDir) as $sid) {
+            if ($sid === '.' || $sid === '..' || $sid === '_manifest.json' || $sid === '_accounts.json' || $sid === '_completed.json') {
                 continue;
             }
-            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-            if (in_array($ext, $allowed, true)) {
+            $dir = $baseDir . '/' . $sid;
+            if (!is_dir($dir)) {
+                continue;
+            }
+            foreach (scandir($dir) as $file) {
+                if ($file === '.' || $file === '..') {
+                    continue;
+                }
+                $full = $dir . '/' . $file;
+                if (!is_file($full)) {
+                    continue;
+                }
+                $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                if (!in_array($ext, $allowed, true)) {
+                    continue;
+                }
                 $images[] = [
                     'file' => $file,
-                    'url'  => 'uploads/' . $file,
-                    'time' => filemtime($dir . '/' . $file),
+                    'url'  => 'uploads/' . $sid . '/' . $file,
+                    'time' => filemtime($full),
                 ];
             }
         }
@@ -198,6 +232,165 @@ function getStudentImages(string $studentId = ''): array
 
     usort($images, fn($a, $b) => $b['time'] <=> $a['time']);
     return $images;
+}
+
+/**
+ * Datei, in der Ausdruck-Konten (User-ID + PIN) gespeichert werden.
+ */
+function accountsPath(): string
+{
+    return __DIR__ . '/../uploads/_accounts.json';
+}
+
+/**
+ * Lädt alle Ausdruck-Konten als [userId => ['pin'=>..., 'student_id'=>..., ...]].
+ */
+function loadAccounts(): array
+{
+    $path = accountsPath();
+    if (is_file($path)) {
+        $raw = file_get_contents($path);
+        $data = json_decode($raw, true);
+        if (is_array($data)) {
+            return $data;
+        }
+    }
+    return [];
+}
+
+/**
+ * Liefert (oder erzeugt) das Ausdruck-Konto eines Schülers.
+ *
+ * Jedes Konto hat eine kurze, für Menschen lesbare User-ID sowie einen
+ * 4-stelligen PIN. Beides wird dem Schüler am Ende angezeigt; der Mitarbeiter
+ * an der Ausdruck-Station loggt sich damit ein.
+ */
+function getOrCreateAccount(string $studentId): array
+{
+    $accounts = loadAccounts();
+
+    // Bestehendes Konto anhand der student_id finden.
+    foreach ($accounts as $userId => $acc) {
+        if (($acc['student_id'] ?? '') === $studentId) {
+            // PIN sicher als String zurückgeben (führende Nullen erhalten).
+            return [
+                'user_id'    => $userId,
+                'pin'        => str_pad((string)$acc['pin'], 4, '0', STR_PAD_LEFT),
+                'student_id' => $studentId,
+            ];
+        }
+    }
+
+    // Neues Konto anlegen.
+    $userId = generateUserId();
+    while (isset($accounts[$userId])) {
+        $userId = generateUserId();
+    }
+
+    $pin = random_int(0, 9999);
+    $accounts[$userId] = [
+        'student_id' => $studentId,
+        'pin'        => $pin,
+        'created'    => time(),
+    ];
+
+    file_put_contents(accountsPath(), json_encode($accounts, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
+
+    return [
+        'user_id'    => $userId,
+        'pin'        => str_pad((string)$pin, 4, '0', STR_PAD_LEFT),
+        'student_id' => $studentId,
+    ];
+}
+
+/**
+ * Erzeugt eine kurze, gut ablesbare User-ID (z. B. "TD-4K7Q").
+ */
+function generateUserId(): string
+{
+    $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne verwechselbare Zeichen
+    $code = '';
+    for ($i = 0; $i < 4; $i++) {
+        $code .= $chars[random_int(0, strlen($chars) - 1)];
+    }
+    return 'TD-' . $code;
+}
+
+/**
+ * Prüft, ob eine User-ID + PIN-Kombination gültig ist.
+ * Liefert bei Erfolg das Konto (inkl. student_id), sonst null.
+ */
+function verifyAccount(string $userId, string $pin): ?array
+{
+    $accounts = loadAccounts();
+    $key = strtoupper(trim($userId));
+    if (!isset($accounts[$key])) {
+        return null;
+    }
+    $acc = $accounts[$key];
+    $expected = str_pad((string)($acc['pin'] ?? ''), 4, '0', STR_PAD_LEFT);
+    $given = str_pad(trim($pin), 4, '0', STR_PAD_LEFT);
+    if (hash_equals($expected, $given)) {
+        return [
+            'user_id'    => $key,
+            'pin'        => $expected,
+            'student_id' => (string)($acc['student_id'] ?? ''),
+        ];
+    }
+    return null;
+}
+
+/**
+ * Zeichnet die Erfüllung einer Quest SERVERSEITIG für einen Schüler auf.
+ * Wird erst nach einer erfolgreichen TAN-Prüfung aufgerufen und ist damit die
+ * einzige verlässliche Quelle dafür, dass ein Quest "erfüllt" ist.
+ * Liefert true, wenn die Quest tatsächlich als neu-gelöst markiert wurde
+ * (false, wenn sie bereits gelöst war).
+ */
+function recordQuestCompletion(string $studentId, int $questId): bool
+{
+    $path = __DIR__ . '/../uploads/_completed.json';
+    $data = [];
+    if (is_file($path)) {
+        $raw = file_get_contents($path);
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $data = $decoded;
+        }
+    }
+
+    if (!isset($data[$studentId])) {
+        $data[$studentId] = [];
+    }
+    $list = &$data[$studentId];
+    $questId = (int)$questId;
+
+    if (in_array($questId, $list, true)) {
+        return false;
+    }
+
+    $list[] = $questId;
+    $list = array_values(array_unique(array_map('intval', $list)));
+    sort($list);
+
+    file_put_contents($path, json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
+    return true;
+}
+
+/**
+ * Liefert die serverseitig erledigten Quest-IDs eines Schülers.
+ */
+function getCompletedQuests(string $studentId): array
+{
+    $path = __DIR__ . '/../uploads/_completed.json';
+    if (!is_file($path)) {
+        return [];
+    }
+    $data = json_decode(file_get_contents($path), true);
+    if (!is_array($data) || !isset($data[$studentId]) || !is_array($data[$studentId])) {
+        return [];
+    }
+    return array_values(array_map('intval', $data[$studentId]));
 }
 
 /**

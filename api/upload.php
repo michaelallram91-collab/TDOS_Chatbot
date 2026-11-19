@@ -56,8 +56,15 @@ if ($studentId === '') {
     $studentId = 'default';
 }
 
+// Bilder werden in einem EIGENEN Unterordner pro Schüler abgelegt, damit die
+// Dateien eindeutig einer Person zugeordnet sind.
+$studentDir = studentUploadDir($studentId);
+if (!is_dir($studentDir)) {
+    mkdir($studentDir, 0775, true);
+}
+
 $name = 'img_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-$dest = rtrim($config['upload_dir'], '/\\') . '/' . $name;
+$dest = $studentDir . '/' . $name;
 
 if (!move_uploaded_file($file['tmp_name'], $dest)) {
     jsonError('Bild konnte nicht gespeichert werden.', 500);
@@ -66,7 +73,7 @@ if (!move_uploaded_file($file['tmp_name'], $dest)) {
 // Bild dem Schüler zuordnen (Manifest im uploads-Ordner)
 registerImageForStudent($studentId, $name);
 
-$publicUrl = 'uploads/' . $name;
+$publicUrl = 'uploads/' . $studentId . '/' . $name;
 
 // Bild mit der KI auswerten (Vision): Erkennt, ob das geforderte Ziel
 // (z. B. "High five mit dem Direktor") auf dem Bild zu sehen ist.

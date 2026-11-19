@@ -23,6 +23,7 @@ $data = readJsonBody();
 if (isset($data['tan']) && isset($data['questId'])) {
     $tan = normalizeText((string)$data['tan']);
     $questId = (int)$data['questId'];
+    $studentId = (string)($data['student_id'] ?? '');
 
     // Die Zeile kommt vom Frontend mit (wurde in Schritt 1 zufällig gewählt).
     $row = isset($data['row']) ? (int)$data['row'] : 0;
@@ -34,7 +35,19 @@ if (isset($data['tan']) && isset($data['questId'])) {
     $expected = isset($tans[$row]) ? normalizeText((string)$tans[$row]) : '';
 
     if ($expected !== '' && $tan === $expected) {
-        jsonResponse(['tanOk' => true]);
+        // ERST NACH der richtigen Antwort UND dem richtigen TAN gilt das Quest
+        // als erfüllt. Dies wird SERVERSEITIG verbindlich protokolliert.
+        $newlyDone = false;
+        if ($studentId !== '') {
+            $newlyDone = recordQuestCompletion($studentId, $questId);
+        }
+        jsonResponse([
+            'tanOk'      => true,
+            'questId'    => $questId,
+            'newlyDone'  => $newlyDone,
+            'completed'  => $studentId !== '' ? getCompletedQuests($studentId) : [],
+            'totalQuests'=> count(loadQuests()),
+        ]);
     }
     jsonResponse(['tanOk' => false]);
 }

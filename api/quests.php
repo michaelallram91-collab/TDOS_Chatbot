@@ -28,4 +28,14 @@ foreach ($quests as $q) {
 // damit der Browser die Lösung nicht auslesen kann, aber die KI sie kennt.
 // Für einfache Schulrallye ist direkte Prüfung im Frontend ausreichend:
 // Wir liefern die Antworten NICHT aus und prüfen stattdessen Server-seitig.
-jsonResponse(['quests' => $safe]);
+$response = ['quests' => $safe];
+
+// Serverseitig bereits erledigte Quests (verbindlich) mitliefern, damit das
+// Popup auch nach einem Reload korrekt anzeigt, was wirklich abgeschlossen ist.
+$studentId = trim((string)($_GET['student_id'] ?? ''));
+$studentId = preg_replace('/[^a-zA-Z0-9_-]/', '', $studentId);
+if ($studentId !== '') {
+    $response['completed'] = getCompletedQuests($studentId);
+}
+
+jsonResponse($response);

@@ -85,12 +85,47 @@ function markQuestDone(id) {
     renderQuests();
     const q = QUESTS.find((x) => x.id === id);
     showToast(`🎉 Quest ${id} erfüllt: ${q ? q.title : ''}`, 'success');
-
-    // Wenn alle Quests erfüllt → Abschluss + Druckaufforderung
-    if (completedQuests.length >= QUESTS.length && QUESTS.length > 0) {
-      promptPrint();
-    }
   }
+}
+
+/**
+ * Abschluss: Wird aufgerufen, sobald die letzte Quest (inkl. TAN) erfüllt ist.
+ * Holt User-ID + PIN vom Server (erst jetzt freigegeben) und zeigt:
+ *  - Glückwunsch + Hinweis auf das Geschenk im Sekretariat
+ *  - Hinweis auf die Ausdruck-Station (falls Fotos hochgeladen wurden)
+ *  - User-ID und PIN für den Mitarbeiter-Login
+ */
+async function promptCompletion() {
+  let account = null;
+  try {
+    const resp = await fetch('api/account.php?student_id=' + encodeURIComponent(studentId));
+    if (resp.ok) {
+      account = await resp.json();
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  const lines = [];
+  lines.push('🎉 **Glückwunsch, du hast alle Aufgaben gelöst!**');
+  lines.push('');
+  lines.push('Im **Sekretariat** wartet ein kleines Geschenk auf dich – zeig dort einfach deine erfüllten Quests vor. 😊');
+
+  if (account && account.user_id) {
+    lines.push('');
+    lines.push('Für deine hochgeladenen Fotos gilt:');
+    lines.push('- Geh zur **Ausdruck-Station** neben dem Sekretariat.');
+    lines.push('- Dort sitzt ein Mitarbeiter, der deine Fotos für dich ausdruckt.');
+    lines.push('');
+    lines.push('Zeige dem Mitarbeiter diese Zugangsdaten:');
+    lines.push('- **User-ID:** `' + account.user_id + '`');
+    lines.push('- **PIN:** `' + account.pin + '`');
+  }
+
+  const msg = { role: 'assistant', content: lines.join('\n') };
+  history.push(msg);
+  saveJSON(STORAGE_KEY_HISTORY, history);
+  renderAll();
 }
 
 function renderQuests() {
@@ -162,11 +197,11 @@ async function verifyTan(tan, questId, row) {
       body: JSON.stringify({ tan: tan, questId: questId, student_id: studentId, row: row }),
     });
     const data = await resp.json();
-    if (!resp.ok) return false;
-    return !!data.tanOk;
+    if (!resp.ok) return { tanOk: false };
+    return data;
   } catch (e) {
     console.error(e);
-    return false;
+    return { tanOk: false };
   }
 }
 
@@ -317,9 +352,6 @@ function renderMessage(msg, { highlight = false } = {}) {
   el.innerHTML = contentHtml;
   messagesEl.appendChild(el);
 
-  if (msg.printPrompt) {
-    renderPrintActions();
-  }
   if (msg.restartPrompt) {
     renderRestartActions();
   }
@@ -415,19 +447,34 @@ async function sendMessage() {
       const ok = await verifyTan(text, pendingTan.questId, pendingTan.row);
       typing.remove();
 
-      if (ok) {
+      if (ok && ok.tanOk) {
         const questId = pendingTan.questId;
+        // Quest NUR nach richtiger Antwort UND richtigem TAN als erfüllt markieren.
         markQuestDone(questId);
         pendingTan = null;
 
-        // KI die Erfüllung mitteilen und zur nächsten Aufgabe übergehen lassen
-        const aiReply = await callChat(
-          `TAN-Code korrekt! Aufgabe ${questId} ist damit offiziell erfüllt. Bitte gratuliere kurz und führe zur nächsten Aufgabe über.`
-        );
-        history.push({
-          role: 'assistant',
-          content: aiReply || `TAN-Code korrekt! ✅ Aufgabe ${questId} ist erfüllt. Weiter so!`,
-        });
+        // Serverseitig verbindliche Liste übernehmen (Quelle der Wahrheit).
+        if (Array.isArray(ok.completed)) {
+          completedQuests = ok.completed.slice();
+          saveJSON(STORAGE_KEY_QUESTS, completedQuests);
+          renderQuests();
+        }
+
+        // If everything (server-verified) is now done, show the completion flow.
+        const allDone = ok.totalQuests > 0 && ok.completed.length >= ok.totalQuests;
+        if (allDone) {
+          await promptCompletion();
+        } else {
+          // KI die Erfüllung mitteilen und zur nächsten Aufgabe übergehen lassen
+          const aiReply = await callChat(
+            `TAN-Code korrekt! Aufgabe ${questId} ist damit offiziell erfüllt. Bitte gratuliere kurz und führe zur nächsten Aufgabe über.`
+          );
+          history.push({
+            role: 'assistant',
+            content: aiReply || `TAN-Code korrekt! ✅ Aufgabe ${questId} ist erfüllt. Weiter so!`,
+          });
+        }
+        saveJSON(STORAGE_KEY_HISTORY, history);
       } else {
         // TAN ungültig – pendingTan bleibt bestehen, damit es erneut versucht werden kann
         history.push({
@@ -605,18 +652,6 @@ async function uploadAndChat(text, imageFile) {
   }
 }
 
-/* ---------- Druck: Schüler fragen ---------- */
-function promptPrint() {
-  const aiMsg = {
-    role: 'assistant',
-    content: '🎉 Glückwunsch, du hast alle Quests erfüllt! Möchtest du deine hochgeladenen Bilder jetzt ausdrucken lassen?',
-    printPrompt: true,
-  };
-  history.push(aiMsg);
-  saveJSON(STORAGE_KEY_HISTORY, history);
-  renderAll();
-}
-
 /* ---------- Neustart-Erkennung ---------- */
 function isRestartRequest(text) {
   const t = normalize(text);
@@ -665,35 +700,6 @@ function renderRestartActions() {
   actions.appendChild(noBtn);
   messagesEl.appendChild(actions);
   scrollToBottom();
-}
-
-// Render-Druckdialog-Buttons als Teil einer Nachricht
-function renderPrintActions() {
-  // Buttons unterhalb der letzten KI-Nachricht anzeigen
-  const actions = document.createElement('div');
-  actions.className = 'msg-actions';
-  const yesBtn = document.createElement('button');
-  yesBtn.className = 'btn btn-primary btn-sm';
-  yesBtn.textContent = '🖨️ Ja, drucken';
-  yesBtn.addEventListener('click', () => openPrintView());
-
-  const noBtn = document.createElement('button');
-  noBtn.className = 'btn btn-ghost btn-sm';
-  noBtn.textContent = 'Nein, danke';
-  noBtn.addEventListener('click', () => {
-    showToast('Ok, kein Druck. :)');
-  });
-
-  actions.appendChild(yesBtn);
-  actions.appendChild(noBtn);
-  messagesEl.appendChild(actions);
-  scrollToBottom();
-}
-
-function openPrintView() {
-  const url = 'print.php?student_id=' + encodeURIComponent(studentId);
-  window.open(url, '_blank');
-  showToast('Druckansicht wird geöffnet…', 'success');
 }
 
 /* ---------- Bild-Vorschau ---------- */
@@ -805,10 +811,21 @@ function initLogoFallback() {
 
 async function loadQuestsFromServer() {
   try {
-    const resp = await fetch('api/quests.php');
+    const resp = await fetch('api/quests.php?student_id=' + encodeURIComponent(studentId));
     const data = await resp.json();
     if (resp.ok && Array.isArray(data.quests)) {
       QUESTS = data.quests;
+    }
+    // Serverseitig erledigte Quests sind die verbindliche Quelle.
+    // Sie werden mit dem lokalen Stand zusammengeführt, damit das Popup
+    // auch nach einem Reload garantiert korrekt anzeigt.
+    if (resp.ok && Array.isArray(data.completed)) {
+      data.completed.forEach((id) => {
+        if (!completedQuests.includes(id)) {
+          completedQuests.push(id);
+        }
+      });
+      saveJSON(STORAGE_KEY_QUESTS, completedQuests);
     }
   } catch (e) {
     console.error('Quests konnten nicht geladen werden.', e);

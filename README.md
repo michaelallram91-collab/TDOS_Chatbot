@@ -13,20 +13,26 @@ TDOS_Chatbot/
 │   └── logo.png          # Schul-Logo (bitte hier ablegen)
 ├── api/
 │   ├── chat.php          # Chat-Endpoint (AI Proxy)
-│   ├── upload.php        # Bild-Upload + lokale Speicherung + Bildprüfung
+│   ├── upload.php        # Bild-Upload + lokale Speicherung (pro Schüler-Ordner) + Bildprüfung
 │   ├── images.php        # Bilderliste (filterbar nach Schüler)
 │   ├── quests.php        # Liefert die dynamischen Quests
-│   └── verify.php        # Serverseitige Antwortprüfung
+│   ├── verify.php        # Serverseitige Antwort- und TAN-Prüfung (protokolliert Erfüllung)
+│   └── account.php       # Liefert User-ID + PIN (erst nach Abschluss aller Quests)
 ├── lib/
 │   ├── helpers.php       # Hilfsfunktionen + Kontext-/Quest-Aufbau
 │   └── AiClient.php      # AI-Client (DeepSeek / FreeGPT)
 ├── context/
 │   └── instructions.txt  # Statische KI-Instruktionen (Persona + Regeln)
 ├── quests.php            # ⭐ Dynamische Quest-Definitionen (Fragen, Hinweise, Lösungen, Bildanforderungen)
-├── uploads/              # Hochgeladene Bilder + _manifest.json (Zuordnung Schüler→Bilder)
+├── uploads/              # Hochgeladene Bilder; pro Schüler ein eigener Ordner
+│   ├── <student_id>/     # Fotos eines Schülers (eindeutige Zuordnung)
+│   ├── _manifest.json    # Zuordnung Schüler→Bilder
+│   ├── _completed.json   # serverseitig erledigte Quests (Quelle der Wahrheit)
+│   └── _accounts.json    # User-ID + PIN der Ausdruck-Konten
 ├── config.php            # Konfiguration (API-Keys, Provider)
 ├── config.example.php    # Vorlage
-└── print.php             # Druckansicht (A6 + Logo + AutoPrint, filterbar nach Schüler)
+├── print-station.php     # 🖨️ Ausdruck-Station (Mitarbeiter-Login mit User-ID + PIN)
+└── print.php             # Weiterleitung auf print-station.php
 ```
 
 ## Einrichtung
@@ -87,13 +93,20 @@ Damit die Lösungswörter nicht einfach unter den Schülern getauscht werden kö
 - Die TAN-Liste steht in **`tans.php`** (10 Einträge, Zeile 1–10).
 - Nach einer korrekten Antwort fordert der Bot den **TAN-Code einer bestimmten Zeile** (z. B. „Code aus Zeile 3").
 - Erst wenn der richtige TAN eingegeben wird, wird das Quest grün erfüllt.
-- Die Zeile wird pro Schüler+Quest deterministisch gewählt – die Betreuer am Tag der offenen Tür halten die ausgedruckte Liste bereit und nennen dem Schüler den passenden Code.
+- Die Zeile wird pro Anfrage zufällig gewählt – die Betreuer halten die ausgedruckte Liste bereit und nennen dem Schüler den passenden Code.
 - Codes jederzeit in `tans.php` änderbar.
 
-## Druck
+**Garantierte Reihenfolge:** Eine Quest gilt erst dann als „erfüllt“ (im Chat und im Quests-Popup), wenn BOTH die richtige Antwort UND anschließend der richtige TAN bestätigt wurden. Die Erfüllung wird dabei serverseitig in `uploads/_completed.json` protokolliert und ist die verbindliche Quelle.
 
-- Am Ende (alle Quests erfüllt) fragt der Chatbot, ob die Bilder gedruckt werden sollen.
-- Mit „Ja, drucken" öffnet sich `print.php?student_id=…` → es werden **nur die Bilder dieses Schülers** gedruckt.
-- Der Druckdialog startet automatisch. Mit `?autoprint=0` deaktivieren.
-- A6-Ausrichtung ist über CSS `@page { size: A6; }` konfiguriert.
-- Als Admin-Gesamtübersicht: `print.php` ohne `student_id` zeigt alle Bilder.
+## Ausdruck-Station (Druck der Fotos)
+
+Am Ende der letzten Quest wird dem Schüler automatisch angezeigt:
+
+- 🎉 Glückwunsch + Hinweis, dass im **Sekretariat** ein kleines Geschenk bereitliegt.
+- 🖨️ Hinweis, dass hochgeladene Fotos an der **Ausdruck-Station** (neben dem Sekretariat) ausgedruckt werden können.
+- 🔑 Eine **User-ID** und ein **PIN**, mit denen sich der Mitarbeiter einloggt.
+
+Der Mitarbeiter öffnet dazu **`print-station.php`** und meldet sich mit User-ID + PIN an. Danach sieht er genau die Fotos des entsprechenden Schülers, kann sie herunterladen und ausdrucken (A6, mit Logo).
+
+- Die Konten (User-ID + PIN) werden serverseitig in `uploads/_accounts.json` verwaltet und erst nach Abschluss aller Quests freigegeben.
+- Die Zuordnung der Fotos erfolgt eindeutig über den Schüler-Ordner `uploads/<student_id>/`.
