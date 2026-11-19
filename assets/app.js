@@ -34,6 +34,9 @@ const questModal = $('#questModal');
 const questList = $('#questList');
 const questBadge = $('#questBadge');
 const progressText = $('#progressText');
+const accountModal = $('#accountModal');
+const accountUserId = $('#accountUserId');
+const accountPin = $('#accountPin');
 const toastEl = $('#toast');
 
 /* ---------- Utilities ---------- */
@@ -90,10 +93,11 @@ function markQuestDone(id) {
 
 /**
  * Abschluss: Wird aufgerufen, sobald die letzte Quest (inkl. TAN) erfüllt ist.
- * Holt User-ID + PIN vom Server (erst jetzt freigegeben) und zeigt:
+ * Holt User-ID + PIN vom Server (jederzeit abfragbar) und zeigt:
  *  - Glückwunsch + Hinweis auf das Geschenk im Sekretariat
- *  - Hinweis auf die Ausdruck-Station (falls Fotos hochgeladen wurden)
+ *  - Hinweis auf die (freiwillige) Ausdruck-Möglichkeit
  *  - User-ID und PIN für den Mitarbeiter-Login
+ *  - Datenschutz-Hinweis
  */
 async function promptCompletion() {
   let account = null;
@@ -113,19 +117,50 @@ async function promptCompletion() {
 
   if (account && account.user_id) {
     lines.push('');
-    lines.push('Für deine hochgeladenen Fotos gilt:');
-    lines.push('- Geh zur **Ausdruck-Station** neben dem Sekretariat.');
-    lines.push('- Dort sitzt ein Mitarbeiter, der deine Fotos für dich ausdruckt.');
+    lines.push('Wenn du möchtest, kannst du deine hochgeladenen Fotos **freiwillig** ausdrucken lassen:');
+    lines.push('- Geh dazu zur **Ausdruck-Station** neben dem Sekretariat.');
+    lines.push('- Dort sitzt ein Mitarbeiter, der deine Fotos (falls vorhanden) für dich ausdruckt.');
     lines.push('');
-    lines.push('Zeige dem Mitarbeiter diese Zugangsdaten:');
+    lines.push('Zeige dem Mitarbeiter dafür diese Zugangsdaten:');
     lines.push('- **User-ID:** `' + account.user_id + '`');
     lines.push('- **PIN:** `' + account.pin + '`');
   }
+
+  lines.push('');
+  lines.push('🔒 **Zum Datenschutz:** Alle Daten (Nachrichten und Fotos) bleiben **im Haus** und werden ausschließlich über unsere lokale KI verarbeitet.');
 
   const msg = { role: 'assistant', content: lines.join('\n') };
   history.push(msg);
   saveJSON(STORAGE_KEY_HISTORY, history);
   renderAll();
+}
+
+/**
+ * Zeigt die Zugangsdaten (User-ID + PIN) JEDERZEIT im Popup an.
+ * Wird über den "🔑 Zugangsdaten"-Button im Header aufgerufen.
+ */
+async function showAccount() {
+  accountUserId.textContent = '…';
+  accountPin.textContent = '…';
+  accountModal.hidden = false;
+
+  try {
+    const resp = await fetch('api/account.php?student_id=' + encodeURIComponent(studentId));
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.user_id) {
+        accountUserId.textContent = data.user_id;
+        accountPin.textContent = data.pin;
+      }
+    } else {
+      accountUserId.textContent = '–';
+      accountPin.textContent = '–';
+    }
+  } catch (e) {
+    console.error(e);
+    accountUserId.textContent = '–';
+    accountPin.textContent = '–';
+  }
 }
 
 function renderQuests() {
@@ -782,8 +817,20 @@ $('#btnCloseModal2').addEventListener('click', () => { questModal.hidden = true;
 questModal.addEventListener('click', (e) => {
   if (e.target === questModal) questModal.hidden = true;
 });
+
+// Zugangsdaten (User-ID + PIN) jederzeit anzeigen
+$('#btnAccount').addEventListener('click', () => showAccount());
+$('#btnCloseAccountModal').addEventListener('click', () => { accountModal.hidden = true; });
+$('#btnCloseAccountModal2').addEventListener('click', () => { accountModal.hidden = true; });
+accountModal.addEventListener('click', (e) => {
+  if (e.target === accountModal) accountModal.hidden = true;
+});
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') questModal.hidden = true;
+  if (e.key === 'Escape') {
+    questModal.hidden = true;
+    accountModal.hidden = true;
+  }
 });
 
 $('#btnClearHistory').addEventListener('click', () => {

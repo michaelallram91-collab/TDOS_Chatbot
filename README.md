@@ -25,7 +25,7 @@ TDOS_Chatbot/
 │   └── instructions.txt  # Statische KI-Instruktionen (Persona + Regeln)
 ├── quests.php            # ⭐ Dynamische Quest-Definitionen (Fragen, Hinweise, Lösungen, Bildanforderungen)
 ├── uploads/              # Hochgeladene Bilder; pro Schüler ein eigener Ordner
-│   ├── <student_id>/     # Fotos eines Schülers (eindeutige Zuordnung)
+│   ├── <user_id>/        # Fotos eines Schülers (Ordner ist anhand der User-ID benannt)
 │   ├── _manifest.json    # Zuordnung Schüler→Bilder
 │   ├── _completed.json   # serverseitig erledigte Quests (Quelle der Wahrheit)
 │   └── _accounts.json    # User-ID + PIN der Ausdruck-Konten
@@ -44,9 +44,9 @@ TDOS_Chatbot/
    ```
 
 2. **Konfiguration anpassen** in `config.php`:
-   - `provider`: `'freegpt'` oder `'deepseek'`
-   - Bei DeepSeek den `api_key` eintragen
-   - Bei FreeGPT die `base_url` deines FreeGPT/g4f-Proxys anpassen
+   - `provider`: `'ollama'`, `'mistral'`, `'freegpt'` oder `'deepseek'`
+   - Bei Ollama die beiden Server (`ollama_text` + `ollama_vision`) eintragen
+   - Bei DeepSeek/Mistral den `api_key` eintragen
 
 3. **Logo** unter `assets/logo.png` ablegen (sonst wird ein Platzhalter angezeigt).
 
@@ -54,8 +54,13 @@ TDOS_Chatbot/
 
 ## Provider
 
+- **Ollama (lokal, 2 Server)**: `provider = 'ollama'`.
+  - **Server 1 – Sprach-KI** (`ollama_text`): z. B. `qwen2.5:8b` auf `http://SERVER1_IP:11434`.
+  - **Server 2 – Bild-KI** (`ollama_vision`): z. B. `llava` auf `http://SERVER2_IP:11434`.
+  - Ollama nutzt den OpenAI-kompatiblen Endpoint `/v1/chat/completions` (vorher ggf. `OLLAMA_ORIGINS`/CORS freigeben). Alle Daten bleiben im Haus.
 - **FreeGPT / g4f**: kostenlos zum Testen. Eigenen g4f-Server starten (z. B. `g4f api` → `http://localhost:1338`).
 - **DeepSeek**: `provider = 'deepseek'`, Key eintragen. Für Vision (Foto-Erkennung) wird `vision_model` verwendet.
+- **Mistral**: `provider = 'mistral'`, Key eintragen.
 
 ## Funktionen
 
@@ -100,13 +105,20 @@ Damit die Lösungswörter nicht einfach unter den Schülern getauscht werden kö
 
 ## Ausdruck-Station (Druck der Fotos)
 
-Am Ende der letzten Quest wird dem Schüler automatisch angezeigt:
+Das Ausdrucken der Fotos ist **freiwillig**. Am Ende der letzten Quest wird dem Schüler angezeigt:
 
 - 🎉 Glückwunsch + Hinweis, dass im **Sekretariat** ein kleines Geschenk bereitliegt.
-- 🖨️ Hinweis, dass hochgeladene Fotos an der **Ausdruck-Station** (neben dem Sekretariat) ausgedruckt werden können.
+- 🖨️ Hinweis, dass hochgeladene Fotos (falls vorhanden) **freiwillig** an der **Ausdruck-Station** (neben dem Sekretariat) ausgedruckt werden können.
 - 🔑 Eine **User-ID** und ein **PIN**, mit denen sich der Mitarbeiter einloggt.
 
-Der Mitarbeiter öffnet dazu **`print-station.php`** und meldet sich mit User-ID + PIN an. Danach sieht er genau die Fotos des entsprechenden Schülers, kann sie herunterladen und ausdrucken (A6, mit Logo).
+Die Zugangsdaten (User-ID + PIN) sind **jederzeit** über den „🔑 Zugangsdaten"-Button im Header abrufbar – unabhängig vom Quest-Fortschritt.
 
-- Die Konten (User-ID + PIN) werden serverseitig in `uploads/_accounts.json` verwaltet und erst nach Abschluss aller Quests freigegeben.
-- Die Zuordnung der Fotos erfolgt eindeutig über den Schüler-Ordner `uploads/<student_id>/`.
+Der Mitarbeiter öffnet **`print-station.php`** und meldet sich mit User-ID + PIN an. Danach sieht er genau die Fotos des entsprechenden Schülers, kann sie herunterladen und ausdrucken (A6, mit Logo).
+
+- Die Konten (User-ID + PIN) werden serverseitig in `uploads/_accounts.json` verwaltet.
+- Die Zuordnung der Fotos erfolgt eindeutig über den Ordner `uploads/<user_id>/` (der Ordner ist anhand der User-ID benannt).
+- Für **nachträgliche File-Uploads** (z. B. durch einen Betreuer) werden die Dateien einfach in den passenden `uploads/<user_id>/`-Ordner gelegt.
+
+## Datenschutz
+
+Alle Daten (Chat-Nachrichten und hochgeladene Fotos) **bleiben im Haus** und werden ausschließlich über die lokale KI verarbeitet. Die hochgeladenen Fotos werden lokal auf dem Server gespeichert.

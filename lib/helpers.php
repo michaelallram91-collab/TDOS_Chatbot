@@ -117,13 +117,22 @@ function normalizeText(string $s): string
 
 /**
  * Unterordner eines Schülers im uploads-Verzeichnis.
- * Jeder Schüler bekommt einen EIGENEN Ordner, damit die Dateien
- * eindeutig einer Person zugeordnet sind.
+ *
+ * Der Ordner wird anhand der **User-ID** benannt (z. B. uploads/TD-4K7Q), damit
+ * die Dateien eindeutig einer Person zugeordnet sind UND nachträgliche
+ * File-Uploads (z. B. manuell durch einen Betreuer) direkt in den passenden
+ * Ordner abgelegt werden können.
+ *
+ * Da die User-ID erst beim ersten Zugriff feststeht, wird das Konto bei Bedarf
+ * hier angelegt (idempotent: gleiche student_id → gleiche User-ID).
  */
 function studentUploadDir(string $studentId): string
 {
     $config = loadConfig();
-    return rtrim($config['upload_dir'], '/\\') . '/' . $studentId;
+    // User-ID ermitteln (erzeugt das Konto, falls noch nicht vorhanden).
+    $account = getOrCreateAccount($studentId);
+    $folder = $account['user_id'];
+    return rtrim($config['upload_dir'], '/\\') . '/' . $folder;
 }
 
 /**
@@ -173,8 +182,9 @@ function getStudentImages(string $studentId = ''): array
     $images = [];
 
     if ($studentId !== '') {
-        // Eindeutige Zuordnung: nur der Schüler-Ordner wird gelesen.
+        // Eindeutige Zuordnung: nur der (anhand der User-ID benannte) Ordner wird gelesen.
         $dir = studentUploadDir($studentId);
+        $folderName = basename($dir); // entspricht der User-ID
         if (is_dir($dir)) {
             foreach (scandir($dir) as $file) {
                 if ($file === '.' || $file === '..') {
@@ -190,7 +200,7 @@ function getStudentImages(string $studentId = ''): array
                 }
                 $images[] = [
                     'file' => $file,
-                    'url'  => 'uploads/' . $studentId . '/' . $file,
+                    'url'  => 'uploads/' . $folderName . '/' . $file,
                     'time' => filemtime($full),
                 ];
             }

@@ -29,9 +29,70 @@ class AiClient
                 return $this->chatDeepSeek($messages, $images);
             case 'freegpt':
                 return $this->chatFreeGpt($messages, $images);
+            case 'ollama':
+                // Getrennte Server: Sprache (Server 1) + Bild-Erkennung (Server 2).
+                return !empty($images)
+                    ? $this->chatOllamaVision($messages, $images)
+                    : $this->chatOllamaText($messages);
             default:
                 return ['error' => 'Unbekannter AI-Provider: ' . $provider];
         }
+    }
+
+    /**
+     * Sprach-KI auf Server 1 (Ollama, z. B. qwen2.5:8b).
+     * OpenAI-kompatibler Endpoint /v1/chat/completions.
+     */
+    private function chatOllamaText(array $messages): array
+    {
+        $cfg = $this->config['ollama_text'] ?? [];
+        $base = rtrim($cfg['base_url'] ?? 'http://server1:11434', '/');
+        $url = $base . '/v1/chat/completions';
+
+        $body = [
+            'model'       => $cfg['model'] ?? 'qwen2.5:8b',
+            'messages'    => $messages,
+            'temperature' => 0.7,
+            'stream'      => false,
+        ];
+
+        $headers = $this->ollamaHeaders($cfg);
+        return $this->post($url, $body, $headers);
+    }
+
+    /**
+     * Bild-KI auf Server 2 (Ollama mit Vision-Modell, z. B. llava).
+     * OpenAI-kompatibler Endpoint /v1/chat/completions mit image_url-Inhalten.
+     */
+    private function chatOllamaVision(array $messages, array $images): array
+    {
+        $cfg = $this->config['ollama_vision'] ?? [];
+        $base = rtrim($cfg['base_url'] ?? 'http://server2:11434', '/');
+        $url = $base . '/v1/chat/completions';
+
+        $body = [
+            'model'       => $cfg['model'] ?? 'llava',
+            'messages'    => $messages,
+            'temperature' => 0.2,
+            'stream'      => false,
+        ];
+
+        $body = $this->withVisionContent($body, $images);
+
+        $headers = $this->ollamaHeaders($cfg);
+        return $this->post($url, $body, $headers);
+    }
+
+    /**
+     * Baut optionale Auth-Header für Ollama (bei Remote-Servern kann ein
+     * API-Key nötig sein; bei lokalen Instanzen meist leer).
+     */
+    private function ollamaHeaders(array $cfg): array
+    {
+        if (!empty($cfg['api_key'])) {
+            return ['Authorization: Bearer ' . $cfg['api_key']];
+        }
+        return [];
     }
 
     /**

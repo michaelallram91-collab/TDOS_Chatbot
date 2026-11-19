@@ -19,6 +19,9 @@
         </div>
       </div>
       <div class="header-actions">
+        <button class="btn btn-ghost" id="btnAccount" title="Zugangsdaten für die Ausdruck-Station anzeigen">
+          <span class="btn-icon">🔑</span> Zugangsdaten
+        </button>
         <button class="btn btn-ghost" id="btnQuests">
           <span class="btn-icon">🏆</span> Quests
           <span class="quest-badge" id="questBadge">0/5</span>
@@ -75,6 +78,27 @@
         <div class="modal-footer">
           <span id="progressText" class="progress-text">0 von 5 erledigt</span>
           <button class="btn btn-primary" id="btnCloseModal2">Schließen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Zugangsdaten Popup -->
+  <div class="modal-overlay" id="accountModal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Deine Zugangsdaten</h3>
+        <button class="modal-close" id="btnCloseAccountModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Mit diesen Daten kann der Mitarbeiter an der Ausdruck-Station (neben dem Sekretariat) deine hochgeladenen Fotos abrufen und ausdrucken.</p>
+        <div class="account-box">
+          <div class="account-row"><span class="account-label">User-ID</span><span class="account-value" id="accountUserId">–</span></div>
+          <div class="account-row"><span class="account-label">PIN</span><span class="account-value" id="accountPin">–</span></div>
+        </div>
+        <p class="modal-hint small">🔒 Alle Daten bleiben im Haus und werden über unsere lokale KI verarbeitet.</p>
+        <div class="modal-footer">
+          <button class="btn btn-primary" id="btnCloseAccountModal2">Schließen</button>
         </div>
       </div>
     </div>

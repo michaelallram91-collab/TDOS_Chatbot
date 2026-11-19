@@ -448,6 +448,26 @@ body {
 }
 .progress-text { font-size: 13px; color: var(--text-muted); font-weight: 600; }
 
+/* Zugangsdaten-Box (Ausdruck-Station) */
+.account-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.account-row:last-child { border-bottom: none; }
+.account-label { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.account-value { font-size: 22px; font-weight: 700; letter-spacing: 2px; color: var(--text); font-variant-numeric: tabular-nums; }
+.modal-hint.small { font-size: 12px; margin-bottom: 0; }
+
 /* Toast */
 .toast {
   position: fixed;

@@ -3,13 +3,11 @@
  * API - Liefert (oder erzeugt) das Ausdruck-Konto eines Schülers.
  *
  * GET /api/account.php?student_id=abc123
- *   → { user_id, pin, student_id }
+ *   → { user_id, pin, student_id, completed_count, total_quests }
  *
- * Die User-ID und der PIN werden dem Schüler am Ende der letzten Quest
- * angezeigt. Der Mitarbeiter an der Ausdruck-Station nutzt sie zum Login.
- *
- * Aus Sicherheitsgründen wird das Konto erst dann erstellt/freigegeben, wenn
- * ALLE Quests erfüllt sind (Prüfung über die serverseitige Abschlussliste).
+ * Die User-ID und der PIN sind JEDERZEIT abfragbar (z. B. über den
+ * Quests-Button oder am Ende der letzten Quest). Der Mitarbeiter an der
+ * Ausdruck-Station nutzt sie zum Login.
  */
 
 require __DIR__ . '/../lib/helpers.php';
@@ -21,19 +19,13 @@ if ($studentId === '') {
     jsonError('student_id fehlt.', 400);
 }
 
-$quests = loadQuests();
-$total = count($quests);
-$completed = getCompletedQuests($studentId);
-
-// Konto nur freigeben, wenn wirklich alle Quests gelöst sind.
-if ($total > 0 && count($completed) < $total) {
-    jsonError('Noch nicht alle Aufgaben gelöst.', 403);
-}
-
+// Konto ist jederzeit abfragbar (unabhängig vom Quest-Fortschritt).
 $account = getOrCreateAccount($studentId);
 
 jsonResponse([
-    'user_id'    => $account['user_id'],
-    'pin'        => $account['pin'],
-    'student_id' => $account['student_id'],
+    'user_id'         => $account['user_id'],
+    'pin'             => $account['pin'],
+    'student_id'      => $account['student_id'],
+    'completed_count' => count(getCompletedQuests($studentId)),
+    'total_quests'    => count(loadQuests()),
 ]);
