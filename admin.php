@@ -160,6 +160,7 @@ $quests = loadQuests();
   </div>
 <?php endif; ?>
 
+<?php if ($loggedIn): ?>
 <script>
   const QUESTS = <?= json_encode(array_values($quests), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 
@@ -240,7 +241,11 @@ $quests = loadQuests();
   async function loadData() {
     try {
       const resp = await fetch('api/admin.php');
-      if (resp.status === 401) { location.reload(); return; }
+      if (resp.status === 401) {
+        // Session abgelaufen → einmalig auf die Login-Seite wechseln.
+        window.location.href = 'admin.php';
+        return;
+      }
       const data = await resp.json();
       render(data);
     } catch (e) {
@@ -251,5 +256,6 @@ $quests = loadQuests();
   loadData();
   setInterval(loadData, 15000); // alle 15 Sekunden automatisch aktualisieren
 </script>
+<?php endif; ?>
 </body>
 </html>
