@@ -706,6 +706,15 @@ function doRestart() {
   pendingTan = null;
   saveJSON(STORAGE_KEY_HISTORY, history);
   saveJSON(STORAGE_KEY_QUESTS, completedQuests);
+
+  // Auch den SERVERSEITIGEN Fortschritt zurücksetzen, damit nach einem Reload
+  // nicht sofort wieder alle Quest als gelöst angezeigt werden. Fire-and-forget.
+  fetch('api/reset.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ student_id: studentId }),
+  }).catch((e) => console.error('Reset fehlgeschlagen.', e));
+
   ensureWelcome();
   renderQuests();
   renderAll();

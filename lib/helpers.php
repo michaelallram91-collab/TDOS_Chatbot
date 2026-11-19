@@ -404,6 +404,94 @@ function getCompletedQuests(string $studentId): array
 }
 
 /**
+ * Setzt den SERVERSEITIGEN Fortschritt eines Schülers vollständig zurück.
+ * Wird beim "Neustart" aufgerufen, damit nach einem Reload nicht sofort wieder
+ * die alten, bereits gelösten Quests angezeigt werden.
+ *
+ * Entfernt:
+ *  - Eintrag aus _completed.json (erledigte Quests)
+ *  - Konto aus _accounts.json (User-ID + PIN)
+ *  - Eintrag aus _manifest.json (Bilder-Zuordnung)
+ *  - den Bilder-Ordner des Schülers
+ */
+function resetStudentData(string $studentId): void
+{
+    // 1) User-ID des Schülers VOR dem Entfernen auflösen, damit wir den
+    //    (anhand der User-ID benannten) Bilder-Ordner noch finden können.
+    $folderName = null;
+    foreach (loadAccounts() as $userId => $acc) {
+        if (($acc['student_id'] ?? '') === $studentId) {
+            $folderName = $userId;
+            break;
+        }
+    }
+
+    // 2) _completed.json
+    $completedPath = __DIR__ . '/../uploads/_completed.json';
+    if (is_file($completedPath)) {
+        $data = json_decode(file_get_contents($completedPath), true) ?: [];
+        if (is_array($data) && isset($data[$studentId])) {
+            unset($data[$studentId]);
+            file_put_contents($completedPath, json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
+        }
+    }
+
+    // 3) _accounts.json – Konto des Schülers entfernen (User-ID + PIN)
+    $accounts = loadAccounts();
+    $changed = false;
+    foreach ($accounts as $userId => $acc) {
+        if (($acc['student_id'] ?? '') === $studentId) {
+            unset($accounts[$userId]);
+            $changed = true;
+        }
+    }
+    if ($changed) {
+        file_put_contents(accountsPath(), json_encode($accounts, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
+    }
+
+    // 4) _manifest.json – Eintrag des Schülers entfernen
+    $manifestPath = imageManifestPath();
+    if (is_file($manifestPath)) {
+        $manifest = json_decode(file_get_contents($manifestPath), true) ?: [];
+        if (is_array($manifest) && isset($manifest[$studentId])) {
+            unset($manifest[$studentId]);
+            file_put_contents($manifestPath, json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT), LOCK_EX);
+        }
+    }
+
+    // 5) Bilder-Ordner löschen (anhand der User-ID benannt).
+    $config = loadConfig();
+    $baseDir = rtrim($config['upload_dir'], '/\\');
+    if ($folderName !== null) {
+        deleteDirectoryRecursive($baseDir . '/' . $folderName);
+    }
+    // Fallback: alter student_id-Ordner (aus früheren Versionen)
+    deleteDirectoryRecursive($baseDir . '/' . $studentId);
+}
+
+/**
+ * Hilfsfunktion: löscht einen Ordner rekursiv.
+ */
+function deleteDirectoryRecursive(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+    foreach (scandir($dir) as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $full = $dir . '/' . $item;
+        if (is_dir($full)) {
+            deleteDirectoryRecursive($full);
+        } else {
+            @unlink($full);
+        }
+    }
+    @rmdir($dir);
+}
+
+/**
  * Wandelt die Quest-Definitionen in einen Textblock für den KI-Kontext um.
  */
 function buildQuestsContext(): string
@@ -465,4 +553,147 @@ function buildContext(): string
     $dynamic = "AKTUELLE AUFGABEN (verbindlich, können sich ändern – nutze immer diese Liste):\n" . $quests;
 
     return $static . "\n\n" . $dynamic;
+}
+
+/**
+ * Liefert alle erledigten Quests als [studentId => [questId, ...]].
+ */
+function getAllCompleted(): array
+{
+    $path = __DIR__ . '/../uploads/_completed.json';
+    if (!is_file($path)) {
+        return [];
+    }
+    $data = json_decode(file_get_contents($path), true);
+    if (!is_array($data)) {
+        return [];
+    }
+    $result = [];
+    foreach ($data as $studentId => $list) {
+        if (is_array($list)) {
+            $result[(string)$studentId] = array_values(array_unique(array_map('intval', $list)));
+        }
+    }
+    return $result;
+}
+
+/**
+ * Liefert alle Ausdruck-Konten (User-ID => Konto inkl. student_id + pin).
+ */
+function getAllAccounts(): array
+{
+    return loadAccounts();
+}
+
+/**
+ * Liefert die Anzahl der hochgeladenen Bilder je student_id.
+ */
+function getImageCounts(): array
+{
+    $path = __DIR__ . '/../uploads/_manifest.json';
+    if (!is_file($path)) {
+        return [];
+    }
+    $manifest = json_decode(file_get_contents($path), true);
+    if (!is_array($manifest)) {
+        return [];
+    }
+    $counts = [];
+    foreach ($manifest as $studentId => $entries) {
+        $counts[(string)$studentId] = is_array($entries) ? count($entries) : 0;
+    }
+    return $counts;
+}
+
+/**
+ * Bündelt alle Schüler-Daten für das Dashboard:
+ *  - user_id (aus dem Ausdruck-Konto, falls vorhanden)
+ *  - student_id
+ *  - completed  : Anzahl erledigter Quests
+ *  - total      : Gesamtzahl der Quests
+ *  - done       : bool (alles erledigt)
+ *  - images     : Anzahl hochgeladener Bilder
+ *  - created    : Zeitstempel des Kontos
+ *
+ * Liefert zusätzlich eine Liste ALLER bekannter student_ids (aus Konten,
+ * Abschlussliste und Bild-Manifest – vereinigt).
+ */
+function getDashboardData(): array
+{
+    $accounts    = getAllAccounts();
+    $completed   = getAllCompleted();
+    $imageCounts = getImageCounts();
+    $totalQuests = count(loadQuests());
+
+    // Alle bekannten student_ids vereinigen.
+    $studentIds = [];
+
+    // Konten: userId => student_id UND umgekehrt student_id => userId
+    $userIdByStudent = [];
+    foreach ($accounts as $userId => $acc) {
+        $sid = (string)($acc['student_id'] ?? '');
+        if ($sid === '') {
+            continue;
+        }
+        $studentIds[$sid] = true;
+        $userIdByStudent[$sid] = $userId;
+    }
+    foreach ($completed as $sid => $list) {
+        $studentIds[$sid] = true;
+    }
+    foreach ($imageCounts as $sid => $count) {
+        $studentIds[$sid] = true;
+    }
+
+    $students = [];
+    foreach (array_keys($studentIds) as $sid) {
+        $doneIds = $completed[$sid] ?? [];
+        $students[] = [
+            'user_id'    => $userIdByStudent[$sid] ?? null,
+            'student_id' => $sid,
+            'completed'  => count($doneIds),
+            'total'      => $totalQuests,
+            'done'       => $totalQuests > 0 && count($doneIds) >= $totalQuests,
+            'images'     => $imageCounts[$sid] ?? 0,
+            'created'    => null,
+        ];
+    }
+
+    // created-Zeitstempel aus den Konten ergänzen.
+    $createdByStudent = [];
+    foreach ($accounts as $userId => $acc) {
+        $sid = (string)($acc['student_id'] ?? '');
+        if ($sid !== '') {
+            $createdByStudent[$sid] = (int)($acc['created'] ?? 0);
+        }
+    }
+    foreach ($students as &$s) {
+        $s['created'] = $createdByStudent[$s['student_id']] ?? null;
+    }
+    unset($s);
+
+    // Sortieren: erst die noch nicht fertigen, dann nach Zeitstempel absteigend.
+    usort($students, function ($a, $b) {
+        if ($a['done'] !== $b['done']) {
+            return $a['done'] ? 1 : -1; // offene zuerst
+        }
+        return ($b['created'] ?? 0) <=> ($a['created'] ?? 0);
+    });
+
+    // Pro Quest zählen, wie viele User sie erledigt haben.
+    $perQuest = [];
+    foreach (loadQuests() as $q) {
+        $perQuest[(int)$q['id']] = 0;
+    }
+    foreach ($completed as $sid => $list) {
+        foreach ($list as $questId) {
+            $perQuest[(int)$questId] = ($perQuest[(int)$questId] ?? 0) + 1;
+        }
+    }
+
+    return [
+        'students'    => $students,
+        'total_quests'=> $totalQuests,
+        'per_quest'   => $perQuest,
+    ];
 }

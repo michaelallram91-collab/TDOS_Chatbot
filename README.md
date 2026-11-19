@@ -17,10 +17,12 @@ TDOS_Chatbot/
 │   ├── images.php        # Bilderliste (filterbar nach Schüler)
 │   ├── quests.php        # Liefert die dynamischen Quests
 │   ├── verify.php        # Serverseitige Antwort- und TAN-Prüfung (protokolliert Erfüllung)
-│   └── account.php       # Liefert User-ID + PIN (erst nach Abschluss aller Quests)
+│   ├── account.php       # Liefert User-ID + PIN (erst nach Abschluss aller Quests)
+│   ├── reset.php         # Setzt serverseitigen Fortschritt eines Schülers zurück
+│   └── admin.php         # Dashboard-Daten (nur für angemeldete Admins)
 ├── lib/
 │   ├── helpers.php       # Hilfsfunktionen + Kontext-/Quest-Aufbau
-│   └── AiClient.php      # AI-Client (DeepSeek / FreeGPT)
+│   └── AiClient.php      # AI-Client (DeepSeek / FreeGPT / Ollama)
 ├── context/
 │   └── instructions.txt  # Statische KI-Instruktionen (Persona + Regeln)
 ├── quests.php            # ⭐ Dynamische Quest-Definitionen (Fragen, Hinweise, Lösungen, Bildanforderungen)
@@ -29,8 +31,9 @@ TDOS_Chatbot/
 │   ├── _manifest.json    # Zuordnung Schüler→Bilder
 │   ├── _completed.json   # serverseitig erledigte Quests (Quelle der Wahrheit)
 │   └── _accounts.json    # User-ID + PIN der Ausdruck-Konten
-├── config.php            # Konfiguration (API-Keys, Provider)
+├── config.php            # Konfiguration (API-Keys, Provider, Admin-Zugang)
 ├── config.example.php    # Vorlage
+├── admin.php             # 📊 Dashboard (Übersicht über den Quest-Fortschritt)
 ├── print-station.php     # 🖨️ Ausdruck-Station (Mitarbeiter-Login mit User-ID + PIN)
 └── print.php             # Weiterleitung auf print-station.php
 ```
@@ -122,3 +125,23 @@ Der Mitarbeiter öffnet **`print-station.php`** und meldet sich mit User-ID + PI
 ## Datenschutz
 
 Alle Daten (Chat-Nachrichten und hochgeladene Fotos) **bleiben im Haus** und werden ausschließlich über die lokale KI verarbeitet. Die hochgeladenen Fotos werden lokal auf dem Server gespeichert.
+
+## Admin-Dashboard
+
+Über **`admin.php`** steht ein einfaches Übersichts-Dashboard zur Verfügung:
+
+- **Gesamtstatistik**: Anzahl User gesamt, fertig, in Arbeit, noch nichts.
+- **Erledigung pro Quest**: Balkenanzeige, wie viele Schüler jede Aufgabe gelöst haben.
+- **Schüler-Übersicht**: Tabelle mit User-ID, Fortschritt (x/y), Status, Anzahl Fotos und Erstellzeitpunkt.
+- Automatische Aktualisierung alle 15 Sekunden.
+
+Login: Benutzername + Passwort, konfiguriert in `config.php` unter `admin`:
+
+```php
+'admin' => [
+    'username' => 'admin',
+    'password' => 'aendere-mich-bitte',   // ⚠️ VOR DEM EINSATZ ÄNDERN!
+],
+```
+
+Das Dashboard liest die serverseitigen Daten aus `uploads/_completed.json`, `_accounts.json` und `_manifest.json`. Der Datenzugriff erfolgt über `api/admin.php` (nur für angemeldete Admins).

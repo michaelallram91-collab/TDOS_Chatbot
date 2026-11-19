@@ -45,6 +45,12 @@ return [
         'model'    => 'gpt-4o-mini',
     ],
 
+    // Admin-Dashboard (admin.php) – Zugangsdaten für die Übersicht.
+    'admin' => [
+        'username' => 'admin',
+        'password' => 'aendere-mich-bitte',   // ⚠️ VOR DEM EINSATZ ÄNDERN!
+    ],
+
     // Datei mit den statischen Instruktionen für die KI
     'context_file' => __DIR__ . '/context/instructions.txt',
 
