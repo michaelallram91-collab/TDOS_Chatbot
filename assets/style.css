@@ -492,7 +492,43 @@ body {
 
 /* Responsive */
 @media (max-width: 640px) {
+  .brand-title { font-size: 15px; }
   .brand-sub { display: none; }
-  .msg { max-width: 90%; }
-  .chat-container { height: calc(100vh - 84px); }
+  .logo { height: 38px; width: 38px; }
+  .header-inner {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .brand { gap: 8px; }
+  .header-actions { gap: 6px; }
+  .header-actions .btn { padding: 7px 10px; font-size: 12px; gap: 5px; }
+  .header-actions .btn-icon { font-size: 14px; }
+  .quest-badge { padding: 1px 7px; font-size: 11px; }
+
+  .chat-wrap { padding: 10px 8px; }
+  .chat-container {
+    height: calc(100vh - 72px);
+    max-height: none;
+    border-radius: 12px;
+  }
+  .chat-toolbar { padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
+  .chat-toolbar-right .btn { padding: 6px 9px; font-size: 12px; }
+  .messages { padding: 12px; }
+  .msg { max-width: 92%; font-size: 14px; }
+  .msg img.msg-image { max-width: 100%; }
+
+  .composer { padding: 8px 10px; }
+  .composer-form { gap: 6px; }
+  .attach { font-size: 20px; padding: 8px 2px; }
+  .composer-form textarea { padding: 10px 14px; font-size: 15px; }
+  .send { width: 42px; height: 42px; }
+
+  .modal { max-height: 92vh; }
+  .modal-header h3 { font-size: 16px; }
+  .account-value { font-size: 18px; letter-spacing: 1px; }
+}
+
+@media (max-width: 380px) {
+  .brand-text { display: none; }
 }

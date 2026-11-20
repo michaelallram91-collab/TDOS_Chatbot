@@ -72,6 +72,19 @@ if (!move_uploaded_file($file['tmp_name'], $dest)) {
     jsonError('Bild konnte nicht gespeichert werden.', 500);
 }
 
+// Großes Kamera-Foto normalisieren: verkleinern + nach JPEG konvertieren.
+// So lassen sich auch direkt aufgenommene Smartphone-Bilder (große Auflösung,
+// ggf. PNG) zuverlässig von der Vision-KI auswerten und sind kleiner.
+$normalizedMime = normalizeUploadedImage($dest, $mime, 1600);
+if ($normalizedMime === 'image/jpeg' && $ext !== 'jpg') {
+    // Dateiendung an das neue Format anpassen.
+    $newName = 'img_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.jpg';
+    rename($dest, $studentDir . '/' . $newName);
+    $name = $newName;
+    $dest = $studentDir . '/' . $newName;
+}
+$finalMime = $normalizedMime === 'image/jpeg' ? 'image/jpeg' : $mime;
+
 // Bild dem Schüler zuordnen (Manifest im uploads-Ordner)
 registerImageForStudent($studentId, $name);
 
@@ -116,7 +129,7 @@ if ($imageQuest) {
 $client = new AiClient();
 $imgData = [
     'data' => base64_encode(file_get_contents($dest)),
-    'mime' => $mime,
+    'mime' => $finalMime,
 ];
 
 $apiMessages = [];
@@ -203,5 +216,5 @@ jsonResponse([
     'quest_id'    => $imageQuest ? (int)$imageQuest['id'] : null,
     'require_tan' => (bool)$imageQuest,
     'row'         => $tanRow,
-    'mime'        => $mime,
+    'mime'        => $finalMime,
 ]);

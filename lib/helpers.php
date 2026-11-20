@@ -116,6 +116,85 @@ function normalizeText(string $s): string
 }
 
 /**
+ * Verkleinert und konvertiert ein hochgeladenes Bild auf eine handhabbare
+ * Größe und ein einheitliches Format (JPEG), damit große Kamera-Fotos
+ * (z. B. direkt am Smartphone aufgenommen) zuverlässig von der Vision-KI
+ * ausgewertet werden können.
+ *
+ * Gibt den neuen MIME-Typ zurück (oder den Original-Typ, wenn GD fehlt
+ * oder das Bild nicht verarbeitet werden konnte). Das Bild wird nur
+ * dann verkleinert, wenn es größer als die Ziel-Maße ist.
+ *
+ * @param string $path      Dateipfad des gespeicherten Bildes (wird überschrieben)
+ * @param string $mime      Aktueller MIME-Typ
+ * @param int    $maxDim    Maximale Kantenlänge (Default 1600px)
+ * @return string           Verwendeter MIME-Typ nach der Verarbeitung
+ */
+function normalizeUploadedImage(string $path, string $mime, int $maxDim = 1600): string
+{
+    if (!function_exists('imagecreatefromstring')) {
+        // GD nicht verfügbar → Bild unverändert lassen.
+        return $mime;
+    }
+
+    $raw = @file_get_contents($path);
+    if ($raw === false) {
+        return $mime;
+    }
+
+    $img = @imagecreatefromstring($raw);
+    if ($img === false) {
+        return $mime;
+    }
+
+    $width  = imagesx($img);
+    $height = imagesy($img);
+
+    $newWidth  = $width;
+    $newHeight = $height;
+    if ($width > $maxDim || $height > $maxDim) {
+        $scale = min($maxDim / $width, $maxDim / $height);
+        $newWidth  = (int)round($width * $scale);
+        $newHeight = (int)round($height * $scale);
+    }
+
+    // Wenn nichts verkleinert werden muss UND bereits JPEG, Original lassen.
+    if ($newWidth === $width && $newHeight === $height && $mime === 'image/jpeg') {
+        imagedestroy($img);
+        return $mime;
+    }
+
+    $dst = imagecreatetruecolor($newWidth, $newHeight);
+    if ($dst === false) {
+        imagedestroy($img);
+        return $mime;
+    }
+
+    // Transparente Hintergründe mit Weiß füllen (wichtig bei PNG/GIF/WebP),
+    // da JPEG keine Transparenz unterstützt.
+    $white = imagecolorallocate($dst, 255, 255, 255);
+    imagefill($dst, 0, 0, $white);
+
+    if (!imagecopyresampled($dst, $img, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height)) {
+        imagedestroy($img);
+        imagedestroy($dst);
+        return $mime;
+    }
+
+    imagedestroy($img);
+
+    $quality = 88;
+    $ok = imagejpeg($dst, $path, $quality);
+    imagedestroy($dst);
+
+    if ($ok) {
+        return 'image/jpeg';
+    }
+
+    return $mime;
+}
+
+/**
  * Unterordner eines Schülers im uploads-Verzeichnis.
  *
  * Der Ordner wird anhand der **User-ID** benannt (z. B. uploads/TD-4K7Q), damit
